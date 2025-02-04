@@ -1,13 +1,14 @@
 cmake_minimum_required(VERSION 3.4...3.18)
-project(pb11PerformanceTesting)
+project(cathalTest)
 
+find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
 find_package(pybind11 REQUIRED)
 
 # Include the header files
 include_directories(include/)
 
 # Add the module
-pybind11_add_module(cathalTest src/myPBmodule.cpp src/myPBmodule.cpp)
+pybind11_add_module(cathalTest src/functionDefs.cpp src/myPBmodule.cpp)
 
 # Optionally set the C++ standard
 set_target_properties(cathalTest PROPERTIES CXX_STANDARD 17)
