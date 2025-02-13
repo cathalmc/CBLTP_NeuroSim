@@ -13,3 +13,7 @@ the arrays get modified in place, so when the function returns, your data is upd
 The best development approach to this is to first write all your code in python, do all the validation and error checking, and then translate it piece by piece to c++.  
 You do NOT want to be error checking on the c++ side.  
 Validate the c++ code against your python code.  Their results be identical (should ...)  
+
+
+Tips:  
+If you get a linker (LINK) error when compiling, it's often because the module is open in your python script. Restart the kernel and try again.

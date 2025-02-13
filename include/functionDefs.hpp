@@ -10,3 +10,4 @@ py::object testFunc(py::array_t<int> testIntVal,
                     py::array_t<double> testNParr
                     );
 
+py::object solveNeuralSystem(py::dict systemInfo, int nIterations, float timeStep);
