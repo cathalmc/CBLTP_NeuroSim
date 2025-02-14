@@ -9,7 +9,8 @@ PYBIND11_MODULE(cathalTest, m) {
 }
 
 inline float sigmoid(float x, float xh, float xk){
-    return 1.0f/(1.0f + expf((xh-x)/xk));
+    return 1.0f/(1.0f + expf((xh-x)*xk)); //normally you divide by K, but I precalculate the inverse to save on computation. 
+    //However debugging this has cost me so much time that it probably wasn't worth it.
 }
 
 inline float solveGate(float x, float s, float TS, float xh, float xk, float xts0, float xts1, float xth, float xtk){
@@ -61,8 +62,13 @@ py::object solveNeuralSystem(py::dict systemInfo, int nIterations, float timeSte
     // py::print("chanStride",chanStride,"gateStride",gateStride);
     float gatingTotal;
     //assign temporary variables for readability
-    float I,V,Ca,spikes,xs,xhs,xks,xts0,xts1,xths,xtks,Erev,g;
+    float I,V,Ca,spikes,xs,xhs,xks,xts0,xts1,xths,xtks,Erev,g,gateVar;
     int neurId;
+
+    for (size_t idx=0;idx<nNeurons;idx++){
+        netCurrents[idx] = 0.0;
+    }
+
     for (int idx=0;idx<nChannels;idx++){
         //temporary variables
         neurId = neuronIds[idx];
@@ -70,13 +76,6 @@ py::object solveNeuralSystem(py::dict systemInfo, int nIterations, float timeSte
         Ca = calciumVals[neurId];
         spikes = spikeVals[neurId];
 
-        // xs = x[idx*chanStride];
-        // xhs = vHalf[idx*chanStride];
-        // xks = vKi[idx*chanStride];
-        // xts0 = tau0[idx*chanStride];
-        // xts1 = tau1[idx*chanStride];
-        // xths = th[idx*chanStride];
-        // xtks = tkInv[idx*chanStride];
         Erev = Erevs[idx];
         g = conductance[idx];
 
@@ -85,25 +84,31 @@ py::object solveNeuralSystem(py::dict systemInfo, int nIterations, float timeSte
         for (size_t idy=0;idy<nGatingVariables;idy++){
             gatingTotal *= x[idx*chanStride + idy];
         }
-        I = -g*gatingTotal*(V-Erev);
+        I = -g*gatingTotal*(V-Erev);// g*gatingTotal*(V-Erev);
         netCurrents[neurId] += I;
         
         for (size_t idy=0;idy<nGatingVariables;idy++) {
-            x[idx*chanStride + idy] = solveGate(x[idx*chanStride + idy],V,timeStep,
-                                                vHalf[idx*chanStride + idy],vKi[idx*chanStride + idy],
-                                                tau0[idx*chanStride + idy],tau1[idx*chanStride + idy],
-                                                th[idx*chanStride + idy],tkInv[idx*chanStride + idy]); 
+            if (idy<2) gateVar = V;
+            else if (idy==2) gateVar = Ca; //Ca
+            else gateVar = spikes; //Spikes
+
+            float xp = x[idx*chanStride + idy];
+            float vHalfp = vHalf[idx*chanStride + idy];
+            float vKip = vKi[idx*chanStride + idy];
+            float tau0p = tau0[idx*chanStride + idy];
+            float tau1p = tau1[idx*chanStride + idy];
+            float thp = th[idx*chanStride + idy];
+            float tkInvp = tkInv[idx*chanStride + idy];
+
+            x[idx*chanStride + idy] = solveGate(xp,gateVar,timeStep,vHalfp,vKip,tau0p,tau1p,thp,tkInvp);
+
+
         }
 
-        // gatingTotal = 1.0f;
-        // for (int idy=0;idy<nGatingVariables;idy++){
-        //     gatingTotal *= x[idx*nGatingVariables + idy];
-        // }
         
     }
     for (size_t idx=0;idx<nNeurons;idx++){
         voltages[idx] += timeStep*netCurrents[idx];
-        netCurrents[idx] = 0.0;
     }
 
 
