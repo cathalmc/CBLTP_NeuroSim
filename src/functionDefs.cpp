@@ -31,7 +31,7 @@ py::object solveNeuralSystem(py::dict systemInfo, int nIterations, float timeSte
     float * voltages = (float *) voltageBuffer.ptr;
     int nNeurons = voltageBuffer.shape[0];
 
-    auto neuronIdBuffer = systemInfo["neuronId"].cast<py::array_t<int>>().request();
+    auto neuronIdBuffer = systemInfo["postNeuron"].cast<py::array_t<int>>().request();
     int * neuronIds = (int *) neuronIdBuffer.ptr;
     
 
