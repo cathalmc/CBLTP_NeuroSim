@@ -57,6 +57,10 @@ py::object solveNeuralSystem(py::dict systemInfo, int nIterations, float timeSte
     float *spikeVals = (float *) systemInfo["spikeVals"].cast<py::array_t<float>>().request().ptr;
     float *netCurrents = (float *) systemInfo["netCurrent"].cast<py::array_t<float>>().request().ptr;
 
+    //To implement:
+    //  spike base stimulation
+    //  
+
     //std::vector<float> netCurrents(nNeurons, 0.0);
     // py::print("nChannels",nChannels,"nGatingVariables",nGatingVariables);
     // py::print("chanStride",chanStride,"gateStride",gateStride);
