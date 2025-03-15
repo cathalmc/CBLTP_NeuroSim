@@ -26,32 +26,63 @@ py::object solveNeuralSystem(py::dict systemInfo, int nIterations, float timeSte
     //     py::print("Key:", item.first, "Value:", item.second);
     // }
 
+    //TODO: grab the single integer values for nChannels, nDiffusiveConnections, maxDelayInt
+    int nChannels = -1;
+
     // get the number of neurons and number of channels from the voltage and neuron ids respectively
     auto voltageBuffer = systemInfo["voltages"].cast<py::array_t<float>>().request();
     float * voltages = (float *) voltageBuffer.ptr;
     int nNeurons = voltageBuffer.shape[0];
 
-    auto neuronIdBuffer = systemInfo["postNeuron"].cast<py::array_t<int>>().request();
-    int * neuronIds = (int *) neuronIdBuffer.ptr;
-    
+    auto postNeuronBuffer = systemInfo["postNeuron"].cast<py::array_t<int>>().request();
+    int * postNeurons = (int *) postNeuronBuffer.ptr;
+    int *preNeurons = (int *) systemInfo["preNeuron"].cast<py::array_t<int>>().request().ptr;
+
+    int *diffPreNeuron = (int *) systemInfo["diffPreNeuron"].cast<py::array_t<int>>().request().ptr;
+    int *diffPostNeuron = (int *) systemInfo["diffPostNeuron"].cast<py::array_t<int>>().request().ptr;
+    float *diffRate = (float *) systemInfo["diffRate"].cast<py::array_t<float>>().request().ptr;
 
     // get the remaining values 
     //keys: ['x', 'vHalf', 'vKi', 'tau0', 'tau1', 'th', 'tkInv', , 'conductance', 'Erev', 'nChannels', 'voltages', 'calciumVals', 'spikeVals']
     auto xBuffer = systemInfo["x"].cast<py::array_t<float>>().request(); //.ptr;
+
+    //TODO: consider changing this data structure to be multiple separate arrays
     size_t nChannels = xBuffer.shape[0];
     size_t nGatingVariables = xBuffer.shape[1];
     size_t chanStride = xBuffer.strides[0]/sizeof(float);
     size_t gateStride = xBuffer.strides[1]/sizeof(float);
     float *x = (float*) xBuffer.ptr;
 
+    auto spikeBufferBuffer = systemInfo["spikeBuffer"].cast<py::array_t<bool>>().request();
+    bool* spikeBuffer = (bool *) spikeBufferBuffer.ptr;
+    int* writeIndex = (int *) systemInfo["writeIndex"].cast<py::array_t<int>>().request().ptr;
+    
 
+    //Ion channel data
     float *vHalf = (float *) systemInfo["vHalf"].cast<py::array_t<float>>().request().ptr;
     float *vKi = (float *) systemInfo["vKi"].cast<py::array_t<float>>().request().ptr;
     float *tau0 = (float *) systemInfo["tau0"].cast<py::array_t<float>>().request().ptr;
     float *tau1 = (float *) systemInfo["tau1"].cast<py::array_t<float>>().request().ptr;
     float *th = (float *) systemInfo["th"].cast<py::array_t<float>>().request().ptr;
     float *tkInv = (float *) systemInfo["tkInv"].cast<py::array_t<float>>().request().ptr;
-    float *conductance = (float *) systemInfo["conductance"].cast<py::array_t<float>>().request().ptr;
+    float *exponent = (float *) systemInfo["exponent"].cast<py::array_t<float>>().request().ptr;
+    float *minOpenness = (float *) systemInfo["minOpenness"].cast<py::array_t<float>>().request().ptr;
+    float *isThisACaCurrent = (float *) systemInfo["CaCurrent"].cast<py::array_t<float>>().request().ptr;
+    float *inputDelay = (float *) systemInfo["inputDelay"].cast<py::array_t<float>>().request().ptr;
+
+    //Plasticity data
+    float *rate = (float *) systemInfo["rate"].cast<py::array_t<float>>().request().ptr;
+    float *gammaP = (float *) systemInfo["gammaP"].cast<py::array_t<float>>().request().ptr;
+    float *gammaD = (float *) systemInfo["gammaD"].cast<py::array_t<float>>().request().ptr;
+    float *thetaP = (float *) systemInfo["thetaP"].cast<py::array_t<float>>().request().ptr;
+    float *thetaD = (float *) systemInfo["thetaD"].cast<py::array_t<float>>().request().ptr;
+    float *efficacy = (float *) systemInfo["efficacy"].cast<py::array_t<float>>().request().ptr;
+
+
+    float *g0 = (float *) systemInfo["conductance"].cast<py::array_t<float>>().request().ptr;
+    float *p = (float *) systemInfo["efficacy"].cast<py::array_t<float>>().request().ptr;
+    float *w = (float *) systemInfo["conductanceGain"].cast<py::array_t<float>>().request().ptr;
+
     float *Erevs = (float *) systemInfo["Erev"].cast<py::array_t<float>>().request().ptr;
     float *calciumVals = (float *) systemInfo["calciumVals"].cast<py::array_t<float>>().request().ptr;
     float *spikeVals = (float *) systemInfo["spikeVals"].cast<py::array_t<float>>().request().ptr;
@@ -75,7 +106,7 @@ py::object solveNeuralSystem(py::dict systemInfo, int nIterations, float timeSte
 
     for (int idx=0;idx<nChannels;idx++){
         //temporary variables
-        neurId = neuronIds[idx];
+        neurId = postNeurons[idx];
         V = voltages[neurId];
         Ca = calciumVals[neurId];
         spikes = spikeVals[neurId];
