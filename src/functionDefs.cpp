@@ -68,6 +68,8 @@ py::object solveNeuralSystem(py::dict systemInfo, int nIterations, float timeSte
     float * isThisCaCurrent = (float *) isThisCaCurrentBuffer.ptr;
     auto netCurrentBuffer = systemInfo["netCurrent"].cast<py::array_t<float>>().request();
     float * netCurrent = (float *) netCurrentBuffer.ptr;
+    auto netCaCurrentBuffer = systemInfo["netCaCurrent"].cast<py::array_t<float>>().request();
+    float * netCaCurrent = (float *) netCaCurrentBuffer.ptr;
 
 
     //gating data 
@@ -121,35 +123,45 @@ py::object solveNeuralSystem(py::dict systemInfo, int nIterations, float timeSte
 
     float gatingTotal;
     //assign temporary variables for readability
-    float I,V,Ca,spikes,xs,xhs,xks,xts0,xts1,xths,xtks,Erev,g,gateVar;
-    int neurId;
+    float I,V,Ca,xs,xhs,xks,xts0,xts1,xths,xtks,Erev,g,gateVar,perceivedSpike;
+    int preSynapticNeuron,postSynapticNeuron,readIndex;
 
     for (size_t idx=0;idx<nNeurons;idx++){
         netCurrent[idx] = 0.0;
+        netCaCurrent[idx] = 0.0;
     }
+
+    //Spike overwrite code needs to be implemented here 
 
     for (int idx=0;idx<nChannels;idx++){
         //temporary variables
-        neurId = postNeuron[idx];
-        V = voltages[neurId];
-        Ca = calciumVals[neurId];
-        spikes = spikeVals[neurId];
+        postSynapticNeuron = postNeuron[idx];
+        V = voltages[postSynapticNeuron];
+        Ca = calciumVals[postSynapticNeuron];
+        preSynapticNeuron = preNeuron[idx];
+        //spikes = spikeVals[postSynapticNeuron];
 
-        Erev = Erevs[idx];
-        g = conductance[idx];
+        g = conductance[idx] + conductanceGain[idx]*efficacy[idx];
 
         //multiply gating variables to get net gate opening
         gatingTotal = 1.0f;
         for (size_t idy=0;idy<nGatingVariables;idy++){
             gatingTotal *= x[idx*chanStride + idy];
         }
-        I = -g*gatingTotal*(V-Erev);// g*gatingTotal*(V-Erev);
-        netCurrents[neurId] += I;
+
+        I = -g*gatingTotal*(V-Erevs[idx]);// g*gatingTotal*(V-Erev);
+        netCurrent[postSynapticNeuron] += I;
+        netCaCurrent[postSynapticNeuron] += isThisCaCurrent[idx]*I;
         
+        readIndex = (writeIndex[preSynapticNeuron]-inputDelay[idx])%maxDelayInt;
+        perceivedSpike = (float)spikeBuffer[preSynapticNeuron][readIndex]; //shit its a flattened 2d array, need to deal with the awkward indexing 
+        //perceivedSpike = max(perceivedSpike,spikeOverwriteList[i]) //stimulateion 
+
+
         for (size_t idy=0;idy<nGatingVariables;idy++) {
             if (idy<2) gateVar = V;
             else if (idy==2) gateVar = Ca; //Ca
-            else gateVar = spikes; //Spikes
+            else gateVar = perceivedSpike; //Spikes
 
             float xp = x[idx*chanStride + idy];
             float vHalfp = vHalf[idx*chanStride + idy];
