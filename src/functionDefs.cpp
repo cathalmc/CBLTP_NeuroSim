@@ -1,6 +1,5 @@
 #include "functionDefs.hpp"
 
-
 PYBIND11_MODULE(cathalTest, m) {
     m.def("testFunc",&testFunc,"run my lil test function",
     "testIntVal"_a,"testNParr"_a);
@@ -19,13 +18,30 @@ inline float solveGate(float x, float s, float TS, float xh, float xk, float xts
     return x + TS*(xInf-x)/tau;
 }
 
+// def calcWeightChange(p,Ca,rate,gammaP,gammaD,thetaP,thetaD):
+//     #from the Graupner and Brunel paper
+//     #rate = 1/tau 
+//     pStar = 0.5
+//     revP = (1-p)
+//     fp = -p*revP*(pStar-p)
+//     potentiation = gammaP*revP*float(Ca>thetaP)
+//     depression = -gammaD*p*float(thetaD<Ca<=thetaP)
+//     Noise = 0
+//     return rate*fp+potentiation+depression+Noise
+
+inline float calcWeightChange(float p, float Ca, float rate, float gammaP, float gammaD, float thetaP, float thetaD){
+    float pStar = 0.5;
+    float revP = (1-p);
+    float fp = -p*revP*(pStar-p);
+    float potentiation = gammaP*revP*(Ca>thetaP);
+    float depression = -gammaD*p*(thetaD<Ca && Ca<=thetaP);
+    float Noise = 0;
+    return rate*fp+potentiation+depression+Noise;
+}
 
 
 py::object solveNeuralSystem(py::dict systemInfo, int nIterations, float timeStep) {
     //systemInfo is a dict of numpy arrays, we need to extract these arrays and process them in place
-    // for (auto item : systemInfo) {
-    //     py::print("Key:", item.first, "Value:", item.second);
-    // }
 
     //Single values 
     int nNeurons = systemInfo["nNeurons"].cast<int>();
@@ -34,10 +50,17 @@ py::object solveNeuralSystem(py::dict systemInfo, int nIterations, float timeSte
     int maxDelayInt = systemInfo["maxDelayInt"].cast<int>();
 
     //bool arrays
-    auto spikeBufferBuffer = systemInfo["spikeBuffer"].cast<py::array_t<bool>>().request();
+    auto spikeBufferBuffer = systemInfo["spikeBuffer"].cast<py::array_t<bool, py::array::c_style>>().request();
+    int psuedoMaxDelayInt = spikeBufferBuffer.shape[1];
+    size_t spikeBufferNeuronStride = spikeBufferBuffer.strides[0]/sizeof(bool);
+    size_t spikeBufferTimeStride = spikeBufferBuffer.strides[1]/sizeof(bool);
     bool* spikeBuffer = (bool *) spikeBufferBuffer.ptr;
 
+    //assert(maxDelayInt==psuedoMaxDelayInt); //is this best practice in c++?
+    if (maxDelayInt != psuedoMaxDelayInt)
+    throw std::runtime_error("maxDelayInt mismatch detected!");
 
+    
     //integer arrays
     //intKeys = ["preNeuron","postNeuron","diffPostNeuron","diffPreNeuron","writeIndex", "inputDelay"]
     auto preNeuronBuffer = systemInfo["preNeuron"].cast<py::array_t<int>>().request();
@@ -58,6 +81,7 @@ py::object solveNeuralSystem(py::dict systemInfo, int nIterations, float timeSte
     //keys: [''voltages', 'calciumVals', 'spikeVals', "CaCurrent", 
     auto voltageBuffer = systemInfo["voltages"].cast<py::array_t<float>>().request();
     float * voltages = (float *) voltageBuffer.ptr;
+    if (voltageBuffer.size < nNeurons) throw std::runtime_error("voltages array too small");
     auto diffRateBuffer = systemInfo["diffRate"].cast<py::array_t<float>>().request();
     float * diffRate = (float *) diffRateBuffer.ptr;
     auto calciumValsBuffer = systemInfo["calciumVals"].cast<py::array_t<float>>().request();
@@ -153,11 +177,13 @@ py::object solveNeuralSystem(py::dict systemInfo, int nIterations, float timeSte
         netCurrent[postSynapticNeuron] += I;
         netCaCurrent[postSynapticNeuron] += isThisCaCurrent[idx]*I;
         
-        readIndex = (writeIndex[preSynapticNeuron]-inputDelay[idx])%maxDelayInt;
-        perceivedSpike = (float)spikeBuffer[preSynapticNeuron][readIndex]; //shit its a flattened 2d array, need to deal with the awkward indexing 
+        readIndex = ((writeIndex[preSynapticNeuron] - inputDelay[idx]) % maxDelayInt + maxDelayInt) % maxDelayInt;
+        //readIndex = (writeIndex[preSynapticNeuron]-inputDelay[idx])%maxDelayInt;
+        perceivedSpike = (float)spikeBuffer[preSynapticNeuron*spikeBufferNeuronStride+readIndex]; //shit its a flattened 2d array, need to deal with the awkward indexing 
         //perceivedSpike = max(perceivedSpike,spikeOverwriteList[i]) //stimulateion 
 
-
+        float dp = calcWeightChange(efficacy[idx],Ca,rate[idx],gammaP[idx],gammaD[idx],thetaP[idx],thetaD[idx]);
+        efficacy[idx] +=timeStep*dp;
         for (size_t idy=0;idy<nGatingVariables;idy++) {
             if (idy<2) gateVar = V;
             else if (idy==2) gateVar = Ca; //Ca
@@ -175,13 +201,35 @@ py::object solveNeuralSystem(py::dict systemInfo, int nIterations, float timeSte
 
 
         }
+    for (size_t idx=0;idx<nDiffusiveConnections;idx++){
+        int preSynapticNeuron = diffPreNeuron[idx];
+        int postSynapticNeuron = diffPostNeuron[idx];
 
+        float Vpost = voltages[postSynapticNeuron];
+        float Capost = calciumVals[postSynapticNeuron];
+        float Vpre = voltages[preSynapticNeuron];
+        float Capre = calciumVals[preSynapticNeuron];
+
+        float I = diffRate[idx]*(Vpost - Vpre);
+        float CaFlow = diffRate[idx]*(Capost - Capre);
+
+        netCurrent[postSynapticNeuron] -= I;
+        netCaCurrent[postSynapticNeuron] += CaFlow*I;
+
+        netCurrent[preSynapticNeuron] += I;
+        netCaCurrent[preSynapticNeuron] -= CaFlow*I;
+
+    }
         
     }
     for (size_t idx=0;idx<nNeurons;idx++){
-        voltages[idx] += timeStep*netCurrents[idx];
-    }
+        constexpr float vThreshold = 0.0f;
+        spikeBuffer[idx*spikeBufferNeuronStride + writeIndex[idx]] = (int) (voltages[idx]>vThreshold); //think L and R values for later 
+        voltages[idx] += timeStep*netCurrent[idx];
+        calciumVals[idx] += timeStep*(0.005*netCaCurrent[idx] + (-calciumVals[idx] +0.001)*0.5);
+        writeIndex[idx] = (writeIndex[idx]+1)%maxDelayInt;
 
+    }
 
    
     return py::none();
