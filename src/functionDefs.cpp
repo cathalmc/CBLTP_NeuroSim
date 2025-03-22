@@ -20,93 +20,117 @@ inline float solveGate(float x, float s, float TS, float xh, float xk, float xts
 }
 
 
+
 py::object solveNeuralSystem(py::dict systemInfo, int nIterations, float timeStep) {
     //systemInfo is a dict of numpy arrays, we need to extract these arrays and process them in place
     // for (auto item : systemInfo) {
     //     py::print("Key:", item.first, "Value:", item.second);
     // }
 
-    //TODO: grab the single integer values for nChannels, nDiffusiveConnections, maxDelayInt
-    int nChannels = -1;
+    //Single values 
+    int nNeurons = systemInfo["nNeurons"].cast<int>();
+    int nChannels = systemInfo["nChannels"].cast<int>();
+    int nDiffusiveConnections = systemInfo["nDiffusiveConnections"].cast<int>();
+    int maxDelayInt = systemInfo["maxDelayInt"].cast<int>();
 
-    // get the number of neurons and number of channels from the voltage and neuron ids respectively
+    //bool arrays
+    auto spikeBufferBuffer = systemInfo["spikeBuffer"].cast<py::array_t<bool>>().request();
+    bool* spikeBuffer = (bool *) spikeBufferBuffer.ptr;
+
+
+    //integer arrays
+    //intKeys = ["preNeuron","postNeuron","diffPostNeuron","diffPreNeuron","writeIndex", "inputDelay"]
+    auto preNeuronBuffer = systemInfo["preNeuron"].cast<py::array_t<int>>().request();
+    int *preNeuron = static_cast<int*>(preNeuronBuffer.ptr);
+    auto postNeuronBuffer = systemInfo["postNeuron"].cast<py::array_t<int>>().request();
+    int *postNeuron = static_cast<int*>(postNeuronBuffer.ptr);
+    auto diffPreNeuronBuffer = systemInfo["diffPreNeuron"].cast<py::array_t<int>>().request();
+    int *diffPreNeuron = static_cast<int*>(diffPreNeuronBuffer.ptr);
+    auto diffPostNeuronBuffer = systemInfo["diffPostNeuron"].cast<py::array_t<int>>().request();
+    int *diffPostNeuron = static_cast<int*>(diffPostNeuronBuffer.ptr);
+    auto writeIndexBuffer = systemInfo["writeIndex"].cast<py::array_t<int>>().request();
+    int *writeIndex = static_cast<int*>(writeIndexBuffer.ptr);
+    auto inputDelayBuffer = systemInfo["inputDelay"].cast<py::array_t<int>>().request();
+    int *inputDelay = static_cast<int*>(inputDelayBuffer.ptr);
+
+
+    //Ion channel data
+    //keys: [''voltages', 'calciumVals', 'spikeVals', "CaCurrent", 
     auto voltageBuffer = systemInfo["voltages"].cast<py::array_t<float>>().request();
     float * voltages = (float *) voltageBuffer.ptr;
-    int nNeurons = voltageBuffer.shape[0];
+    auto diffRateBuffer = systemInfo["diffRate"].cast<py::array_t<float>>().request();
+    float * diffRate = (float *) diffRateBuffer.ptr;
+    auto calciumValsBuffer = systemInfo["calciumVals"].cast<py::array_t<float>>().request();
+    float * calciumVals = (float *) calciumValsBuffer.ptr;
+    auto spikeValsBuffer = systemInfo["spikeVals"].cast<py::array_t<float>>().request();
+    float * spikeVals = (float *) spikeValsBuffer.ptr;
+    auto isThisCaCurrentBuffer = systemInfo["CaCurrent"].cast<py::array_t<float>>().request();
+    float * isThisCaCurrent = (float *) isThisCaCurrentBuffer.ptr;
+    auto netCurrentBuffer = systemInfo["netCurrent"].cast<py::array_t<float>>().request();
+    float * netCurrent = (float *) netCurrentBuffer.ptr;
 
-    auto postNeuronBuffer = systemInfo["postNeuron"].cast<py::array_t<int>>().request();
-    int * postNeurons = (int *) postNeuronBuffer.ptr;
-    int *preNeurons = (int *) systemInfo["preNeuron"].cast<py::array_t<int>>().request().ptr;
 
-    int *diffPreNeuron = (int *) systemInfo["diffPreNeuron"].cast<py::array_t<int>>().request().ptr;
-    int *diffPostNeuron = (int *) systemInfo["diffPostNeuron"].cast<py::array_t<int>>().request().ptr;
-    float *diffRate = (float *) systemInfo["diffRate"].cast<py::array_t<float>>().request().ptr;
-
-    // get the remaining values 
-    //keys: ['x', 'vHalf', 'vKi', 'tau0', 'tau1', 'th', 'tkInv', , 'conductance', 'Erev', 'nChannels', 'voltages', 'calciumVals', 'spikeVals']
+    //gating data 
+    //x', 'vHalf', 'vKi', 'tau0', 'tau1', 'th', 'tkInv', 'exponent',"minOpenness" , 
     auto xBuffer = systemInfo["x"].cast<py::array_t<float>>().request(); //.ptr;
-
     //TODO: consider changing this data structure to be multiple separate arrays
-    size_t nChannels = xBuffer.shape[0];
     size_t nGatingVariables = xBuffer.shape[1];
     size_t chanStride = xBuffer.strides[0]/sizeof(float);
     size_t gateStride = xBuffer.strides[1]/sizeof(float);
     float *x = (float*) xBuffer.ptr;
 
-    auto spikeBufferBuffer = systemInfo["spikeBuffer"].cast<py::array_t<bool>>().request();
-    bool* spikeBuffer = (bool *) spikeBufferBuffer.ptr;
-    int* writeIndex = (int *) systemInfo["writeIndex"].cast<py::array_t<int>>().request().ptr;
-    
-
-    //Ion channel data
-    float *vHalf = (float *) systemInfo["vHalf"].cast<py::array_t<float>>().request().ptr;
-    float *vKi = (float *) systemInfo["vKi"].cast<py::array_t<float>>().request().ptr;
-    float *tau0 = (float *) systemInfo["tau0"].cast<py::array_t<float>>().request().ptr;
-    float *tau1 = (float *) systemInfo["tau1"].cast<py::array_t<float>>().request().ptr;
-    float *th = (float *) systemInfo["th"].cast<py::array_t<float>>().request().ptr;
-    float *tkInv = (float *) systemInfo["tkInv"].cast<py::array_t<float>>().request().ptr;
-    float *exponent = (float *) systemInfo["exponent"].cast<py::array_t<float>>().request().ptr;
-    float *minOpenness = (float *) systemInfo["minOpenness"].cast<py::array_t<float>>().request().ptr;
-    float *isThisACaCurrent = (float *) systemInfo["CaCurrent"].cast<py::array_t<float>>().request().ptr;
-    float *inputDelay = (float *) systemInfo["inputDelay"].cast<py::array_t<float>>().request().ptr;
-
-    //Plasticity data
-    float *rate = (float *) systemInfo["rate"].cast<py::array_t<float>>().request().ptr;
-    float *gammaP = (float *) systemInfo["gammaP"].cast<py::array_t<float>>().request().ptr;
-    float *gammaD = (float *) systemInfo["gammaD"].cast<py::array_t<float>>().request().ptr;
-    float *thetaP = (float *) systemInfo["thetaP"].cast<py::array_t<float>>().request().ptr;
-    float *thetaD = (float *) systemInfo["thetaD"].cast<py::array_t<float>>().request().ptr;
-    float *efficacy = (float *) systemInfo["efficacy"].cast<py::array_t<float>>().request().ptr;
+    auto vHalfBuffer = systemInfo["vHalf"].cast<py::array_t<float>>().request();
+    float *vHalf = (float *) vHalfBuffer.ptr;
+    auto vKiBuffer = systemInfo["vKi"].cast<py::array_t<float>>().request();
+    float *vKi = (float *) vKiBuffer.ptr;
+    auto tau0Buffer = systemInfo["tau0"].cast<py::array_t<float>>().request();
+    float *tau0 = (float *) tau0Buffer.ptr;
+    auto tau1Buffer = systemInfo["tau1"].cast<py::array_t<float>>().request();
+    float *tau1 = (float *) tau1Buffer.ptr;
+    auto thBuffer = systemInfo["th"].cast<py::array_t<float>>().request();
+    float *th = (float *) thBuffer.ptr;
+    auto tkInvBuffer = systemInfo["tkInv"].cast<py::array_t<float>>().request();
+    float *tkInv = (float *) tkInvBuffer.ptr;
+    auto exponentBuffer = systemInfo["exponent"].cast<py::array_t<float>>().request();
+    float *exponent = (float *) exponentBuffer.ptr;
+    auto minOpennessBuffer = systemInfo["minOpenness"].cast<py::array_t<float>>().request();
+    float *minOpenness = (float *) minOpennessBuffer.ptr;
 
 
-    float *g0 = (float *) systemInfo["conductance"].cast<py::array_t<float>>().request().ptr;
-    float *p = (float *) systemInfo["efficacy"].cast<py::array_t<float>>().request().ptr;
-    float *w = (float *) systemInfo["conductanceGain"].cast<py::array_t<float>>().request().ptr;
+    //Synapse data
+    // "rate","gammaP","gammaD", "thetaP","thetaD",'conductance',"efficacy","conductanceGain" 'Erev',  ]
+    auto rateBuffer = systemInfo["rate"].cast<py::array_t<float>>().request();
+    float *rate = (float *) rateBuffer.ptr;
+    auto gammaPBuffer = systemInfo["gammaP"].cast<py::array_t<float>>().request();
+    float *gammaP = (float *) gammaPBuffer.ptr;
+    auto gammaDBuffer = systemInfo["gammaD"].cast<py::array_t<float>>().request();
+    float *gammaD = (float *) gammaDBuffer.ptr;
+    auto thetaPBuffer = systemInfo["thetaP"].cast<py::array_t<float>>().request();
+    float *thetaP = (float *) thetaPBuffer.ptr;
+    auto thetaDBuffer = systemInfo["thetaD"].cast<py::array_t<float>>().request();
+    float *thetaD = (float *) thetaDBuffer.ptr;
+    auto conductanceBuffer = systemInfo["conductance"].cast<py::array_t<float>>().request();
+    float *conductance = (float *) conductanceBuffer.ptr;
+    auto efficacyBuffer = systemInfo["efficacy"].cast<py::array_t<float>>().request();
+    float *efficacy = (float *) efficacyBuffer.ptr;
+    auto conductanceGainBuffer = systemInfo["conductanceGain"].cast<py::array_t<float>>().request();
+    float *conductanceGain = (float *) conductanceGainBuffer.ptr;
+    auto ErevBuffer = systemInfo["Erev"].cast<py::array_t<float>>().request();
+    float *Erevs = (float *) ErevBuffer.ptr;
 
-    float *Erevs = (float *) systemInfo["Erev"].cast<py::array_t<float>>().request().ptr;
-    float *calciumVals = (float *) systemInfo["calciumVals"].cast<py::array_t<float>>().request().ptr;
-    float *spikeVals = (float *) systemInfo["spikeVals"].cast<py::array_t<float>>().request().ptr;
-    float *netCurrents = (float *) systemInfo["netCurrent"].cast<py::array_t<float>>().request().ptr;
 
-    //To implement:
-    //  spike base stimulation
-    //  
-
-    //std::vector<float> netCurrents(nNeurons, 0.0);
-    // py::print("nChannels",nChannels,"nGatingVariables",nGatingVariables);
-    // py::print("chanStride",chanStride,"gateStride",gateStride);
     float gatingTotal;
     //assign temporary variables for readability
     float I,V,Ca,spikes,xs,xhs,xks,xts0,xts1,xths,xtks,Erev,g,gateVar;
     int neurId;
 
     for (size_t idx=0;idx<nNeurons;idx++){
-        netCurrents[idx] = 0.0;
+        netCurrent[idx] = 0.0;
     }
 
     for (int idx=0;idx<nChannels;idx++){
         //temporary variables
-        neurId = postNeurons[idx];
+        neurId = postNeuron[idx];
         V = voltages[neurId];
         Ca = calciumVals[neurId];
         spikes = spikeVals[neurId];
