@@ -7,14 +7,15 @@ PYBIND11_MODULE(cathalTest, m) {
     "myDict"_a,"nIterations"_a,"timeStep"_a);
 }
 
-inline float sigmoid(float x, float xh, float xk){
-    return 1.0f/(1.0f + expf((xh-x)*xk)); //normally you divide by K, but I precalculate the inverse to save on computation. 
+inline float sigmoid(float x, float xh, float xk,float minOp){
+    return minOp + (1.0f/(1.0f + expf((xh-x)*xk))); //normally you divide by K, but I precalculate the inverse to save on computation. 
     //However debugging this has cost me so much time that it probably wasn't worth it.
 }
 
-inline float solveGate(float x, float s, float TS, float xh, float xk, float xts0, float xts1, float xth, float xtk){
-    float xInf = sigmoid(s,xh,xk);
-    float tau = xts0 + xts1*sigmoid(s,xth,xtk);
+inline float solveGate(float x, float s, float TS, float xh, float xk, float xts0, 
+        float xts1, float xth, float xtk,float minOpenness){
+    float xInf = sigmoid(s,xh,xk,minOpenness);
+    float tau = xts0 + xts1*sigmoid(s,xth,xtk,0.0f);
     return x + TS*(xInf-x)/tau;
 }
 
@@ -170,7 +171,8 @@ py::object solveNeuralSystem(py::dict systemInfo, int nIterations, float timeSte
         //multiply gating variables to get net gate opening
         gatingTotal = 1.0f;
         for (size_t idy=0;idy<nGatingVariables;idy++){
-            gatingTotal *= x[idx*chanStride + idy];
+            float expnt = exponent[idx*chanStride + idy];
+            gatingTotal *= pow(x[idx*chanStride + idy],expnt);
         }
 
         I = -g*gatingTotal*(V-Erevs[idx]);// g*gatingTotal*(V-Erev);
@@ -184,6 +186,7 @@ py::object solveNeuralSystem(py::dict systemInfo, int nIterations, float timeSte
 
         float dp = calcWeightChange(efficacy[idx],Ca,rate[idx],gammaP[idx],gammaD[idx],thetaP[idx],thetaD[idx]);
         efficacy[idx] +=timeStep*dp;
+
         for (size_t idy=0;idy<nGatingVariables;idy++) {
             if (idy<2) gateVar = V;
             else if (idy==2) gateVar = Ca; //Ca
@@ -196,11 +199,14 @@ py::object solveNeuralSystem(py::dict systemInfo, int nIterations, float timeSte
             float tau1p = tau1[idx*chanStride + idy];
             float thp = th[idx*chanStride + idy];
             float tkInvp = tkInv[idx*chanStride + idy];
+            float minOp = minOpenness[idx*chanStride + idy];
 
-            x[idx*chanStride + idy] = solveGate(xp,gateVar,timeStep,vHalfp,vKip,tau0p,tau1p,thp,tkInvp);
+            x[idx*chanStride + idy] = solveGate(xp,gateVar,timeStep,vHalfp,vKip,tau0p,tau1p,thp,tkInvp,minOp);
 
 
         }
+
+    }
     for (size_t idx=0;idx<nDiffusiveConnections;idx++){
         int preSynapticNeuron = diffPreNeuron[idx];
         int postSynapticNeuron = diffPostNeuron[idx];
@@ -221,7 +227,7 @@ py::object solveNeuralSystem(py::dict systemInfo, int nIterations, float timeSte
 
     }
         
-    }
+    
     for (size_t idx=0;idx<nNeurons;idx++){
         constexpr float vThreshold = 0.0f;
         spikeBuffer[idx*spikeBufferNeuronStride + writeIndex[idx]] = (int) (voltages[idx]>vThreshold); //think L and R values for later 
