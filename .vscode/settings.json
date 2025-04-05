@@ -3,5 +3,6 @@
         "*.cpp": "cpp",
         "utility": "cpp",
         "vector": "cpp"
-    }
+    },
+    "python.analysis.autoImportCompletions": true
 }
