@@ -80,6 +80,7 @@ def solveChannels(ac,spikeOverwriteList,TS):
         I = g*gatingTotal*(V-Erev) 
         ac["netCurrent"][postSynapticNeuron] += I
         ac["netCaCurrent"][postSynapticNeuron] += CaCurrent*I
+        ac["current"][i] = I
 
         synapseDelay = ac["inputDelay"][i]
         readIndex = int((writeIndex[preSynapticNeuron]-synapseDelay)%maxDelay)
@@ -125,7 +126,7 @@ def solveNeurons(ac,TS):
     alpha = 1/(2*96485) #this is the conversion factor between current and Ca diffusion. scale it up if you want Ca in different units 
     for i in range(nNeurons):
         spikeBuffer[i][writeIndex[i]] = int(voltage[i]>0)
-        voltage[i] -= TS*ac["netCurrent"][i]
+        voltage[i] -= TS*(ac["netCurrent"][i]+ac["biasCurrents"][i])
         calciumVals[i] += TS*(-alpha*ac["netCaCurrent"][i] + (-calciumVals[i]+ 1e-6)*2) #This requires some explaination:
                         #We need to convert Ca current (in uA/cm^2) to Ca concentration (in mol/L) so I hardcode the conversion factor 
                         #Cellular Ca is tightly regulated to ~uM concentrations, so I've included a fixed point at 1e-6.
@@ -136,7 +137,7 @@ def solveNeurons(ac,TS):
         writeIndex[i] = (writeIndex[i]+1)%ac["maxDelayInt"]
 
 def solveSystemStandard(ac,TS,runTime,stimInfo={},
-                        recordingKeys = ["voltages","x","calciumVals","netCurrent","efficacy"]):
+                        recordingKeys = ["voltages","x","calciumVals","netCurrent","efficacy","current"]):
     nIterations = int(runTime/TS)
     data = {key:[] for key in recordingKeys}
     tv = np.linspace(0,runTime,nIterations)
