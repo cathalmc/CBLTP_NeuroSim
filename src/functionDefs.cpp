@@ -43,7 +43,7 @@ inline float calcWeightChange(float p, float Ca, float rate, float gammaP, float
 
 py::object solveNeuralSystem(py::dict systemInfo, int nIterations, float timeStep) {
     //systemInfo is a dict of numpy arrays, we need to extract these arrays and process them in place
-
+    constexpr float alpha = 1.0/(2.0*96485); //converts current to calcium diffusion, 
     //Single values 
     int nNeurons = systemInfo["nNeurons"].cast<int>();
     int nChannels = systemInfo["nChannels"].cast<int>();
@@ -232,7 +232,7 @@ py::object solveNeuralSystem(py::dict systemInfo, int nIterations, float timeSte
         constexpr float vThreshold = 0.0f;
         spikeBuffer[idx*spikeBufferNeuronStride + writeIndex[idx]] = (int) (voltages[idx]>vThreshold); //think L and R values for later 
         voltages[idx] += timeStep*netCurrent[idx];
-        calciumVals[idx] += timeStep*(0.005*netCaCurrent[idx] + (-calciumVals[idx] +0.001)*0.5);
+        calciumVals[idx] += timeStep*(-alpha*netCaCurrent[idx] + (-calciumVals[idx] +1e-6)*2);
         writeIndex[idx] = (writeIndex[idx]+1)%maxDelayInt;
 
     }

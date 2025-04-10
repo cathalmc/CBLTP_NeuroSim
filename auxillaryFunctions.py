@@ -77,7 +77,7 @@ def solveChannels(ac,spikeOverwriteList,TS):
             gatingTotal *= (x**n)
 
         g = g0 + w*p
-        I = -g*gatingTotal*(V-Erev) 
+        I = g*gatingTotal*(V-Erev) 
         ac["netCurrent"][postSynapticNeuron] += I
         ac["netCaCurrent"][postSynapticNeuron] += CaCurrent*I
 
@@ -122,13 +122,14 @@ def solveNeurons(ac,TS):
     nNeurons = ac["nNeurons"]
     calciumVals = ac["calciumVals"]
     writeIndex = ac["writeIndex"]
+    alpha = 1/(2*96485) #this is the conversion factor between current and Ca diffusion. scale it up if you want Ca in different units 
     for i in range(nNeurons):
         spikeBuffer[i][writeIndex[i]] = int(voltage[i]>0)
-        voltage[i] += TS*ac["netCurrent"][i]
-        calciumVals[i] += TS*(0.005*ac["netCaCurrent"][i] + (-calciumVals[i]+ 0.001)/2) #This requires some explaination:
-                        #We need to convert Ca current (in uA/cm^2) to Ca concentration (in mol/L) so I hardcode the conversion factor (which I just made up TODO:fix)
-                        #Cellular Ca is tightly regulated to ~uM concentrations, so I've included a fixed point at 0.001.
-                        #I've set the timeconstant for Ca regulation to be 2ms
+        voltage[i] -= TS*ac["netCurrent"][i]
+        calciumVals[i] += TS*(-alpha*ac["netCaCurrent"][i] + (-calciumVals[i]+ 1e-6)*2) #This requires some explaination:
+                        #We need to convert Ca current (in uA/cm^2) to Ca concentration (in mol/L) so I hardcode the conversion factor 
+                        #Cellular Ca is tightly regulated to ~uM concentrations, so I've included a fixed point at 1e-6.
+                        #I've set the timeconstant for Ca regulation to be 0.5ms, which might be a little fast
                         #With this implementation its possible to have 1. calcium efflux (which is fine), and 2. negative Ca concentrations (which is not fine)
                         #but negative Ca would require persistent Vm>140mV which is unphysiological anyway. 
         #spikeVals[i] = float(voltage[i] > 0) #we could add delays by making spikes be some dynamical system triggered by voltage > 0. (do a phase portrait to figure it out)            
