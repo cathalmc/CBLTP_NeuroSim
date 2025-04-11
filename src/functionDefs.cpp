@@ -162,12 +162,13 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
     float I,V,Ca,xs,xhs,xks,xts0,xts1,xths,xtks,Erev,g,gateVar,perceivedSpike;
     int preSynapticNeuron,postSynapticNeuron,readIndex;
 
-    for (size_t idx=0;idx<nNeurons;idx++){
-        netCurrent[idx] = 0.0;
-        netCaCurrent[idx] = 0.0;
-    }
+    
 
     for (size_t timeInd=0;timeInd<nIterations;timeInd++){
+        for (size_t idx=0;idx<nNeurons;idx++){
+            netCurrent[idx] = 0.0;
+            netCaCurrent[idx] = 0.0;
+        }
         //Spike overwrite code needs to be implemented here 
         for (int idx=0;idx<nChannels;idx++){
             //temporary variables
@@ -248,9 +249,31 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
             writeIndex[idx] = (writeIndex[idx]+1)%maxDelayInt;
 
         }
-        // if (timeInd%samplingInterval == 0){
+        //maybe add a guard for the case where there is only one sim iter, or deal with that on the python side
+        if (timeInd%samplingInterval == 0){
+            for (auto item : recordingInfo) {
+                //Warning: AI generated 
+                py::handle key = item.first;
+                // py::array simArray = systemInfo[key].cast<py::array>();
+                // py::array recArray = item.second.cast<py::array>();
 
-        // }
+                auto simBuf = systemInfo[key].cast<py::array_t<float>>().request();
+                auto recBuf = item.second.cast<py::array_t<float>>().request();
+
+                auto simArray = (float*)simBuf.ptr;
+                auto recArray = (float*)recBuf.ptr;
+                
+                if (recBuf.ndim != simBuf.ndim + 1)
+                    throw std::runtime_error("Array dimension mismatch");
+
+                // Ensure all inner dimensions match
+                for (size_t i = 0; i < simBuf.ndim; ++i) {
+                    if (recBuf.shape[i + 1] != simBuf.shape[i])
+                        throw std::runtime_error("Shape mismatch between simDict and rDict");
+                }
+
+            }
+        }
     }
    
    
