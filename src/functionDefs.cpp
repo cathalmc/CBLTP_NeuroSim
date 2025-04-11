@@ -4,7 +4,7 @@ PYBIND11_MODULE(cathalTest, m) {
     m.def("testFunc",&testFunc,"run my lil test function",
     "testIntVal"_a,"testNParr"_a);
     m.def("solveNeuralSystem",&solveNeuralSystem,"test accepting dictionaries",
-    "myDict"_a,"nIterations"_a,"timeStep"_a);
+    "myDict"_a,"recordingInfo"_a, "timeStep"_a,"nIterations"_a,"samplingInterval"_a);
 }
 
 inline float sigmoid(float x, float xh, float xk,float minOp){
@@ -42,7 +42,8 @@ inline float calcWeightChange(float p, float Ca, float rate, float gammaP, float
 }
 
 
-py::object solveNeuralSystem(py::dict systemInfo, int nIterations, float timeStep) {
+py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo, 
+                            float timeStep,int nIterations,int samplingInterval) {
     //systemInfo is a dict of numpy arrays, we need to extract these arrays and process them in place
     
     constexpr float alpha = 1.0/(2.0*96485); //converts current to calcium diffusion, 
@@ -166,88 +167,92 @@ py::object solveNeuralSystem(py::dict systemInfo, int nIterations, float timeSte
         netCaCurrent[idx] = 0.0;
     }
 
-    //Spike overwrite code needs to be implemented here 
+    for (size_t timeInd=0;timeInd<nIterations;timeInd++){
+        //Spike overwrite code needs to be implemented here 
+        for (int idx=0;idx<nChannels;idx++){
+            //temporary variables
+            postSynapticNeuron = postNeuron[idx];
+            V = voltages[postSynapticNeuron];
+            Ca = calciumVals[postSynapticNeuron];
+            preSynapticNeuron = preNeuron[idx];
+            //spikes = spikeVals[postSynapticNeuron];
 
-    for (int idx=0;idx<nChannels;idx++){
-        //temporary variables
-        postSynapticNeuron = postNeuron[idx];
-        V = voltages[postSynapticNeuron];
-        Ca = calciumVals[postSynapticNeuron];
-        preSynapticNeuron = preNeuron[idx];
-        //spikes = spikeVals[postSynapticNeuron];
+            g = conductance[idx] + conductanceGain[idx]*efficacy[idx];
 
-        g = conductance[idx] + conductanceGain[idx]*efficacy[idx];
+            //multiply gating variables to get net gate opening
+            gatingTotal = 1.0f;
+            for (size_t idy=0;idy<nGatingVariables;idy++){
+                float expnt = exponent[idx*chanStride + idy];
+                gatingTotal *= pow(x[idx*chanStride + idy],expnt);
+            }
 
-        //multiply gating variables to get net gate opening
-        gatingTotal = 1.0f;
-        for (size_t idy=0;idy<nGatingVariables;idy++){
-            float expnt = exponent[idx*chanStride + idy];
-            gatingTotal *= pow(x[idx*chanStride + idy],expnt);
+            I = g*gatingTotal*(V-Erevs[idx]);// g*gatingTotal*(V-Erev);
+            netCurrent[postSynapticNeuron] += I;
+            netCaCurrent[postSynapticNeuron] += isThisCaCurrent[idx]*I;
+            channelCurrent[idx] = I; //this is just for recording 
+            
+            readIndex = ((writeIndex[preSynapticNeuron] - inputDelay[idx]) % maxDelayInt + maxDelayInt) % maxDelayInt;
+            //readIndex = (writeIndex[preSynapticNeuron]-inputDelay[idx])%maxDelayInt;
+            perceivedSpike = (float)spikeBuffer[preSynapticNeuron*spikeBufferNeuronStride+readIndex]; //shit its a flattened 2d array, need to deal with the awkward indexing 
+            //perceivedSpike = max(perceivedSpike,spikeOverwriteList[i]) //stimulateion 
+
+            float dp = calcWeightChange(efficacy[idx],Ca,rate[idx],gammaP[idx],gammaD[idx],thetaP[idx],thetaD[idx]);
+            efficacy[idx] +=timeStep*dp;
+
+            for (size_t idy=0;idy<nGatingVariables;idy++) {
+                if (idy<2) gateVar = V;
+                else if (idy==2) gateVar = Ca; //Ca
+                else gateVar = perceivedSpike; //Spikes
+
+                float xp = x[idx*chanStride + idy];
+                float vHalfp = vHalf[idx*chanStride + idy];
+                float vKip = vKi[idx*chanStride + idy];
+                float tau0p = tau0[idx*chanStride + idy];
+                float tau1p = tau1[idx*chanStride + idy];
+                float thp = th[idx*chanStride + idy];
+                float tkInvp = tkInv[idx*chanStride + idy];
+                float minOp = minOpenness[idx*chanStride + idy];
+
+                x[idx*chanStride + idy] = solveGate(xp,gateVar,timeStep,vHalfp,vKip,tau0p,tau1p,thp,tkInvp,minOp);
+
+
+            }
+
         }
+        for (size_t idx=0;idx<nDiffusiveConnections;idx++){
+            int preSynapticNeuron = diffPreNeuron[idx];
+            int postSynapticNeuron = diffPostNeuron[idx];
 
-        I = g*gatingTotal*(V-Erevs[idx]);// g*gatingTotal*(V-Erev);
-        netCurrent[postSynapticNeuron] += I;
-        netCaCurrent[postSynapticNeuron] += isThisCaCurrent[idx]*I;
-        channelCurrent[idx] = I; //this is just for recording 
-        
-        readIndex = ((writeIndex[preSynapticNeuron] - inputDelay[idx]) % maxDelayInt + maxDelayInt) % maxDelayInt;
-        //readIndex = (writeIndex[preSynapticNeuron]-inputDelay[idx])%maxDelayInt;
-        perceivedSpike = (float)spikeBuffer[preSynapticNeuron*spikeBufferNeuronStride+readIndex]; //shit its a flattened 2d array, need to deal with the awkward indexing 
-        //perceivedSpike = max(perceivedSpike,spikeOverwriteList[i]) //stimulateion 
+            float Vpost = voltages[postSynapticNeuron];
+            float Capost = calciumVals[postSynapticNeuron];
+            float Vpre = voltages[preSynapticNeuron];
+            float Capre = calciumVals[preSynapticNeuron];
 
-        float dp = calcWeightChange(efficacy[idx],Ca,rate[idx],gammaP[idx],gammaD[idx],thetaP[idx],thetaD[idx]);
-        efficacy[idx] +=timeStep*dp;
+            float I = diffRate[idx]*(Vpost - Vpre);
+            float CaFlow = diffRate[idx]*(Capost - Capre);
 
-        for (size_t idy=0;idy<nGatingVariables;idy++) {
-            if (idy<2) gateVar = V;
-            else if (idy==2) gateVar = Ca; //Ca
-            else gateVar = perceivedSpike; //Spikes
+            netCurrent[postSynapticNeuron] -= I;
+            netCaCurrent[postSynapticNeuron] += CaFlow*I;
 
-            float xp = x[idx*chanStride + idy];
-            float vHalfp = vHalf[idx*chanStride + idy];
-            float vKip = vKi[idx*chanStride + idy];
-            float tau0p = tau0[idx*chanStride + idy];
-            float tau1p = tau1[idx*chanStride + idy];
-            float thp = th[idx*chanStride + idy];
-            float tkInvp = tkInv[idx*chanStride + idy];
-            float minOp = minOpenness[idx*chanStride + idy];
-
-            x[idx*chanStride + idy] = solveGate(xp,gateVar,timeStep,vHalfp,vKip,tau0p,tau1p,thp,tkInvp,minOp);
-
+            netCurrent[preSynapticNeuron] += I;
+            netCaCurrent[preSynapticNeuron] -= CaFlow*I;
 
         }
-
-    }
-    for (size_t idx=0;idx<nDiffusiveConnections;idx++){
-        int preSynapticNeuron = diffPreNeuron[idx];
-        int postSynapticNeuron = diffPostNeuron[idx];
-
-        float Vpost = voltages[postSynapticNeuron];
-        float Capost = calciumVals[postSynapticNeuron];
-        float Vpre = voltages[preSynapticNeuron];
-        float Capre = calciumVals[preSynapticNeuron];
-
-        float I = diffRate[idx]*(Vpost - Vpre);
-        float CaFlow = diffRate[idx]*(Capost - Capre);
-
-        netCurrent[postSynapticNeuron] -= I;
-        netCaCurrent[postSynapticNeuron] += CaFlow*I;
-
-        netCurrent[preSynapticNeuron] += I;
-        netCaCurrent[preSynapticNeuron] -= CaFlow*I;
-
-    }
+            
         
-    
-    for (size_t idx=0;idx<nNeurons;idx++){
-        constexpr float vThreshold = 0.0f;
-        spikeBuffer[idx*spikeBufferNeuronStride + writeIndex[idx]] = (int) (voltages[idx]>vThreshold); //think L and R values for later 
-        voltages[idx] -= timeStep*(netCurrent[idx]+biasCurrents[idx]);
-        calciumVals[idx] += timeStep*(-alpha*netCaCurrent[idx] + (-calciumVals[idx] + CaEquilibriumVal)*CaRemovalRate);
-        writeIndex[idx] = (writeIndex[idx]+1)%maxDelayInt;
+        for (size_t idx=0;idx<nNeurons;idx++){
+            constexpr float vThreshold = 0.0f;
+            spikeBuffer[idx*spikeBufferNeuronStride + writeIndex[idx]] = (int) (voltages[idx]>vThreshold); //think L and R values for later 
+            voltages[idx] -= timeStep*(netCurrent[idx]+biasCurrents[idx]);
+            calciumVals[idx] += timeStep*(-alpha*netCaCurrent[idx] + (-calciumVals[idx] + CaEquilibriumVal)*CaRemovalRate);
+            writeIndex[idx] = (writeIndex[idx]+1)%maxDelayInt;
 
+        }
+        // if (timeInd%samplingInterval == 0){
+
+        // }
     }
-
+   
    
     return py::none();
 }
