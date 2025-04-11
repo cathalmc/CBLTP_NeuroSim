@@ -124,10 +124,12 @@ def solveNeurons(ac,TS):
     calciumVals = ac["calciumVals"]
     writeIndex = ac["writeIndex"]
     alpha = 1/(2*96485) #this is the conversion factor between current and Ca diffusion. scale it up if you want Ca in different units 
+    CaEquilibriumVal = 0 #1 I think 1e-6 is reasonble, otsuka is 0
+    CaRemovalRate = 2 #ms, this is the value otsuka uses, not sure where they get it from 
     for i in range(nNeurons):
         spikeBuffer[i][writeIndex[i]] = int(voltage[i]>0)
         voltage[i] -= TS*(ac["netCurrent"][i]+ac["biasCurrents"][i])
-        calciumVals[i] += TS*(-alpha*ac["netCaCurrent"][i] + (-calciumVals[i]+ 1e-6)*2) #This requires some explaination:
+        calciumVals[i] += TS*(-alpha*ac["netCaCurrent"][i] + (-calciumVals[i]+ CaEquilibriumVal)*CaRemovalRate) #This requires some explaination:
                         #We need to convert Ca current (in uA/cm^2) to Ca concentration (in mol/L) so I hardcode the conversion factor 
                         #Cellular Ca is tightly regulated to ~uM concentrations, so I've included a fixed point at 1e-6.
                         #I've set the timeconstant for Ca regulation to be 0.5ms, which might be a little fast
