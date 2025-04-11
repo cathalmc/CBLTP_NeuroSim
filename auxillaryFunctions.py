@@ -29,8 +29,8 @@ def sigmoid(z,h,kInv,minOp):
 def solveGate(x,s,TS,xh,xk,xt0,xt1,xth,xtk,minOpenness):
     xInf = sigmoid(s,xh,xk,minOpenness)#*(xt0+xt1)/TS
     tau = xt0 + xt1*sigmoid(s,xth,xtk,0)
-    return x + TS*(xInf-x)/tau
-    #return (tau*x + TS*xInf)/(tau+TS)
+    #return x + TS*(xInf-x)/tau
+    return (tau*x + TS*xInf)/(tau+TS)
 def calcWeightChange(p,Ca,rate,gammaP,gammaD,thetaP,thetaD):
     #from the Graupner and Brunel paper
     #rate = 1/tau 
@@ -139,7 +139,7 @@ def solveNeurons(ac,TS):
         writeIndex[i] = (writeIndex[i]+1)%ac["maxDelayInt"]
 
 def solveSystemStandard(ac,TS,runTime,stimInfo={},
-                        recordingKeys = ["voltages","x","calciumVals","netCurrent","efficacy","current"]):
+                        recordingKeys = ["voltages","calciumVals","netCurrent","current"]):
     nIterations = int(runTime/TS)
     data = {key:[] for key in recordingKeys}
     tv = np.linspace(0,runTime,nIterations)

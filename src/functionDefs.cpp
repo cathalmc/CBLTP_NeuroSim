@@ -16,7 +16,8 @@ inline float solveGate(float x, float s, float TS, float xh, float xk, float xts
         float xts1, float xth, float xtk,float minOpenness){
     float xInf = sigmoid(s,xh,xk,minOpenness);
     float tau = xts0 + xts1*sigmoid(s,xth,xtk,0.0f);
-    return x + TS*(xInf-x)/tau;
+    //return x + TS*(xInf-x)/tau;
+    return (tau*x +TS*xInf)/(tau+TS);
 }
 
 // def calcWeightChange(p,Ca,rate,gammaP,gammaD,thetaP,thetaD):
@@ -43,12 +44,20 @@ inline float calcWeightChange(float p, float Ca, float rate, float gammaP, float
 
 py::object solveNeuralSystem(py::dict systemInfo, int nIterations, float timeStep) {
     //systemInfo is a dict of numpy arrays, we need to extract these arrays and process them in place
+    
     constexpr float alpha = 1.0/(2.0*96485); //converts current to calcium diffusion, 
+    constexpr float CaEquilibriumVal = 0.0f; // should be 1e-6, but keeping it 0 for consistency with otsuka
+    constexpr float CaRemovalRate = 2.0f; //from otsuka
     //Single values 
     int nNeurons = systemInfo["nNeurons"].cast<int>();
     int nChannels = systemInfo["nChannels"].cast<int>();
     int nDiffusiveConnections = systemInfo["nDiffusiveConnections"].cast<int>();
     int maxDelayInt = systemInfo["maxDelayInt"].cast<int>();
+
+    //Neuron data
+    auto biasCurrentsBuffer = systemInfo["biasCurrents"].cast<py::array_t<float>>().request();
+    float *biasCurrents = (float*)(biasCurrentsBuffer.ptr);
+
 
     //bool arrays
     auto spikeBufferBuffer = systemInfo["spikeBuffer"].cast<py::array_t<bool, py::array::c_style>>().request();
@@ -60,7 +69,6 @@ py::object solveNeuralSystem(py::dict systemInfo, int nIterations, float timeSte
     //assert(maxDelayInt==psuedoMaxDelayInt); //is this best practice in c++?
     if (maxDelayInt != psuedoMaxDelayInt)
     throw std::runtime_error("maxDelayInt mismatch detected!");
-
     
     //integer arrays
     //intKeys = ["preNeuron","postNeuron","diffPostNeuron","diffPreNeuron","writeIndex", "inputDelay"]
@@ -95,6 +103,8 @@ py::object solveNeuralSystem(py::dict systemInfo, int nIterations, float timeSte
     float * netCurrent = (float *) netCurrentBuffer.ptr;
     auto netCaCurrentBuffer = systemInfo["netCaCurrent"].cast<py::array_t<float>>().request();
     float * netCaCurrent = (float *) netCaCurrentBuffer.ptr;
+    auto channelCurrentBuffer = systemInfo["current"].cast<py::array_t<float>>().request();
+    float * channelCurrent = (float *) channelCurrentBuffer.ptr;
 
 
     //gating data 
@@ -175,9 +185,10 @@ py::object solveNeuralSystem(py::dict systemInfo, int nIterations, float timeSte
             gatingTotal *= pow(x[idx*chanStride + idy],expnt);
         }
 
-        I = -g*gatingTotal*(V-Erevs[idx]);// g*gatingTotal*(V-Erev);
+        I = g*gatingTotal*(V-Erevs[idx]);// g*gatingTotal*(V-Erev);
         netCurrent[postSynapticNeuron] += I;
         netCaCurrent[postSynapticNeuron] += isThisCaCurrent[idx]*I;
+        channelCurrent[idx] = I; //this is just for recording 
         
         readIndex = ((writeIndex[preSynapticNeuron] - inputDelay[idx]) % maxDelayInt + maxDelayInt) % maxDelayInt;
         //readIndex = (writeIndex[preSynapticNeuron]-inputDelay[idx])%maxDelayInt;
@@ -231,8 +242,8 @@ py::object solveNeuralSystem(py::dict systemInfo, int nIterations, float timeSte
     for (size_t idx=0;idx<nNeurons;idx++){
         constexpr float vThreshold = 0.0f;
         spikeBuffer[idx*spikeBufferNeuronStride + writeIndex[idx]] = (int) (voltages[idx]>vThreshold); //think L and R values for later 
-        voltages[idx] += timeStep*netCurrent[idx];
-        calciumVals[idx] += timeStep*(-alpha*netCaCurrent[idx] + (-calciumVals[idx] +1e-6)*2);
+        voltages[idx] -= timeStep*(netCurrent[idx]+biasCurrents[idx]);
+        calciumVals[idx] += timeStep*(-alpha*netCaCurrent[idx] + (-calciumVals[idx] + CaEquilibriumVal)*CaRemovalRate);
         writeIndex[idx] = (writeIndex[idx]+1)%maxDelayInt;
 
     }
