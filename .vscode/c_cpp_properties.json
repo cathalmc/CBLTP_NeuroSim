@@ -6,8 +6,8 @@
                 "${workspaceFolder}/**",
                 "C:\\Users\\CathalMcLoughlin\\anaconda3\\envs\\morpho311\\include",
                 "C:\\Users\\CathalMcLoughlin\\anaconda3\\envs\\morpho311\\Lib\\site-packages\\pybind11\\include",
-                "C:\\Users\\catha\\anaconda3\\envs\\morpho\\Lib\\site-packages\\pybind11\\include",
-                "C:\\Users\\catha\\anaconda3\\envs\\morpho\\include",
+                "C:\\Users\\catha\\anaconda3\\envs\\Morpho25\\Lib\\site-packages\\pybind11\\include",
+                "C:\\Users\\catha\\anaconda3\\envs\\Morpho25\\include",
                 "C:\\Users\\Cathal\\miniconda3\\envs\\Morpho2023\\Lib\\site-packages\\pybind11\\include",
                 "C:\\Users\\Cathal\\miniconda3\\envs\\Morpho2023\\include"
             ],

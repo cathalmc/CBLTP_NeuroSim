@@ -2,7 +2,8 @@
     "files.associations": {
         "*.cpp": "cpp",
         "utility": "cpp",
-        "vector": "cpp"
+        "vector": "cpp",
+        "stdexcept": "cpp"
     },
     "python.analysis.autoImportCompletions": true
 }

@@ -162,6 +162,7 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
     float I,V,Ca,xs,xhs,xks,xts0,xts1,xths,xtks,Erev,g,gateVar,perceivedSpike;
     int preSynapticNeuron,postSynapticNeuron,readIndex;
 
+    size_t sampleInd = 0;
     
 
     for (size_t timeInd=0;timeInd<nIterations;timeInd++){
@@ -258,7 +259,7 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
                 // py::array recArray = item.second.cast<py::array>();
 
                 auto simBuf = systemInfo[key].cast<py::array_t<float>>().request();
-                auto recBuf = item.second.cast<py::array_t<float>>().request();
+                auto recBuf = recordingInfo[key].cast<py::array_t<float>>().request();
 
                 auto simArray = (float*)simBuf.ptr;
                 auto recArray = (float*)recBuf.ptr;
@@ -271,10 +272,35 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
                     if (recBuf.shape[i + 1] != simBuf.shape[i])
                         throw std::runtime_error("Shape mismatch between simDict and rDict");
                 }
+                // if (recBuf.size != simBuf.size){
+                //     throw std::runtime_error("recBuf and simBuf are not the same size");
+                // }
+
+                size_t length = simBuf.size;
+                for (size_t i = 0; i < length; ++i) {
+                    recArray[sampleInd*length + i] = simArray[i];
+                }
 
             }
+            sampleInd++;
+            
         }
     }
+
+
+    for (auto item : recordingInfo) {
+            //Warning: AI generated 
+            py::handle key = item.first;
+            py::print(key);
+            auto recBuf = recordingInfo[key].cast<py::array_t<float>>().request();
+            auto recArray = (float*)recBuf.ptr;
+
+            size_t length = recBuf.size;
+            for (size_t i = 0; i < length; ++i) {
+                py::print(recArray[i]);
+            }
+
+        }
    
    
     return py::none();
