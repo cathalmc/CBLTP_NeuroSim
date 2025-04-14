@@ -261,8 +261,17 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
                 auto simBuf = systemInfo[key].cast<py::array_t<float>>().request();
                 auto recBuf = recordingInfo[key].cast<py::array_t<float>>().request();
 
-                auto simArray = (float*)simBuf.ptr;
-                auto recArray = (float*)recBuf.ptr;
+                // auto recArray = py::cast<py::array_t<float>>(recordingInfo[key]);
+                // auto mut = recArray.mutable_unchecked<2>();
+
+                // auto simArray = systemInfo[key].cast<py::array_t<float>>().unchecked<1>();
+                auto simArray = systemInfo[key].cast<py::array_t<float>>().unchecked<1>();
+                auto recArray = py::cast<py::array_t<float>>(recordingInfo[key]);
+                auto mut = recArray.mutable_unchecked<2>();
+
+
+                // auto simArray = (float*)simBuf.ptr;
+                // auto recArray = (float*)recBuf.ptr;
                 
                 if (recBuf.ndim != simBuf.ndim + 1)
                     throw std::runtime_error("Array dimension mismatch");
@@ -276,9 +285,13 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
                 //     throw std::runtime_error("recBuf and simBuf are not the same size");
                 // }
 
-                size_t length = simBuf.size;
-                for (size_t i = 0; i < length; ++i) {
-                    recArray[sampleInd*length + i] = simArray[i];
+                // size_t length = simBuf.size;
+                // for (size_t i = 0; i < length; ++i) {
+                //     mut[sampleInd*length + i] = simArray[i];
+                // }
+                
+                for (size_t i = 0; i < simArray.shape(0); ++i) {
+                    mut(sampleInd, i) = simArray(i);
                 }
 
             }
@@ -286,6 +299,11 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
             
         }
     }
+    auto arr = py::array_t<float>({2, 3});
+    recordingInfo["test"] = arr;
+    auto buf = arr.mutable_unchecked<2>();
+    buf(0, 0) = 42.0f;
+    py::print(recordingInfo["test"]);
 
 
     for (auto item : recordingInfo) {
@@ -294,11 +312,13 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
             py::print(key);
             auto recBuf = recordingInfo[key].cast<py::array_t<float>>().request();
             auto recArray = (float*)recBuf.ptr;
-
+            py::print("recordingInfo[key] is:", recordingInfo[key].get_type());
             size_t length = recBuf.size;
-            for (size_t i = 0; i < length; ++i) {
-                py::print(recArray[i]);
-            }
+            py::print("After:", recordingInfo[key]);
+
+            // for (size_t i = 0; i < length; ++i) {
+            //     py::print(recArray[i]);
+            // }
 
         }
    
