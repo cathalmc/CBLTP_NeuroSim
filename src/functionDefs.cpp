@@ -20,17 +20,6 @@ inline float solveGate(float x, float s, float TS, float xh, float xk, float xts
     return (tau*x +TS*xInf)/(tau+TS);
 }
 
-// def calcWeightChange(p,Ca,rate,gammaP,gammaD,thetaP,thetaD):
-//     #from the Graupner and Brunel paper
-//     #rate = 1/tau 
-//     pStar = 0.5
-//     revP = (1-p)
-//     fp = -p*revP*(pStar-p)
-//     potentiation = gammaP*revP*float(Ca>thetaP)
-//     depression = -gammaD*p*float(thetaD<Ca<=thetaP)
-//     Noise = 0
-//     return rate*fp+potentiation+depression+Noise
-
 inline float calcWeightChange(float p, float Ca, float rate, float gammaP, float gammaD, float thetaP, float thetaD){
     float pStar = 0.5;
     float revP = (1-p);
@@ -255,24 +244,15 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
             for (auto item : recordingInfo) {
                 //Warning: AI generated 
                 py::handle key = item.first;
-                // py::array simArray = systemInfo[key].cast<py::array>();
-                // py::array recArray = item.second.cast<py::array>();
 
                 auto simBuf = systemInfo[key].cast<py::array_t<float>>().request();
                 auto recBuf = recordingInfo[key].cast<py::array_t<float>>().request();
 
-                // auto recArray = py::cast<py::array_t<float>>(recordingInfo[key]);
-                // auto mut = recArray.mutable_unchecked<2>();
-
-                // auto simArray = systemInfo[key].cast<py::array_t<float>>().unchecked<1>();
-                auto simArray = systemInfo[key].cast<py::array_t<float>>().unchecked<1>();
                 auto recArray = py::cast<py::array_t<float>>(recordingInfo[key]);
                 auto mut = recArray.mutable_unchecked<2>();
-
-
-                // auto simArray = (float*)simBuf.ptr;
-                // auto recArray = (float*)recBuf.ptr;
                 
+                auto simArray = systemInfo[key].cast<py::array_t<float>>();
+
                 if (recBuf.ndim != simBuf.ndim + 1)
                     throw std::runtime_error("Array dimension mismatch");
 
@@ -281,46 +261,35 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
                     if (recBuf.shape[i + 1] != simBuf.shape[i])
                         throw std::runtime_error("Shape mismatch between simDict and rDict");
                 }
-                // if (recBuf.size != simBuf.size){
-                //     throw std::runtime_error("recBuf and simBuf are not the same size");
-                // }
 
-                // size_t length = simBuf.size;
-                // for (size_t i = 0; i < length; ++i) {
-                //     mut[sampleInd*length + i] = simArray[i];
+                std::memcpy(recArray.mutable_data(sampleInd), simArray.data(), simArray.size() * sizeof(float));
+
+                // for (size_t i = 0; i < simArray.shape(0); ++i) {
+                //     mut(sampleInd, i) = simArray(i);
                 // }
-                
-                for (size_t i = 0; i < simArray.shape(0); ++i) {
-                    mut(sampleInd, i) = simArray(i);
-                }
 
             }
             sampleInd++;
             
         }
     }
-    auto arr = py::array_t<float>({2, 3});
-    recordingInfo["test"] = arr;
-    auto buf = arr.mutable_unchecked<2>();
-    buf(0, 0) = 42.0f;
-    py::print(recordingInfo["test"]);
+    // auto arr = py::array_t<float>({2, 3});
+    // recordingInfo["test"] = arr;
+    // auto buf = arr.mutable_unchecked<2>();
+    // buf(0, 0) = 42.0f;
+    // py::print(recordingInfo["test"]);
 
 
-    for (auto item : recordingInfo) {
-            //Warning: AI generated 
-            py::handle key = item.first;
-            py::print(key);
-            auto recBuf = recordingInfo[key].cast<py::array_t<float>>().request();
-            auto recArray = (float*)recBuf.ptr;
-            py::print("recordingInfo[key] is:", recordingInfo[key].get_type());
-            size_t length = recBuf.size;
-            py::print("After:", recordingInfo[key]);
-
-            // for (size_t i = 0; i < length; ++i) {
-            //     py::print(recArray[i]);
-            // }
-
-        }
+    // for (auto item : recordingInfo) {
+    //         //Warning: AI generated 
+    //         py::handle key = item.first;
+    //         py::print(key);
+    //         auto recBuf = recordingInfo[key].cast<py::array_t<float>>().request();
+    //         auto recArray = (float*)recBuf.ptr;
+    //         py::print("recordingInfo[key] is:", recordingInfo[key].get_type());
+    //         size_t length = recBuf.size;
+    //         py::print("After:", recordingInfo[key]);
+    //     }
    
    
     return py::none();
