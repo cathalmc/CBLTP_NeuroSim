@@ -22,6 +22,27 @@ def sideBySidePlot(data1,data2,ax=None):
     standardPlot(data1,ax,ls="-")
     standardPlot(data2,ax,ls="--")
 
+def gatingPlot(data,ax=None):
+    time = data["time"]
+    gatingData = data["x"]
+    nChannels = gatingData.shape[1]
+    nGates = gatingData.shape[2]
+    if ax is None:
+        fig,ax = plt.subplots(nChannels,nGates,figsize = (12,2.5*nChannels),dpi=120,sharex=True,sharey=True)
+
+    if len(ax.shape) ==1:
+        ax = np.array([ax,ax])
+    for i in range(nChannels):
+        for j in range(nGates):
+            ax[i,j].plot(time,gatingData[:,i,j])
+            ax[i,j].set_title(f"{i},{j}")
+
+    return ax
+
+def gatingPlotSideBySide(data1,data2):
+#fig,ax = plt.subplots(nChannels,nGates,figsize = (12,1.8*nChannels),dpi=120,sharex=True,sharey=True)
+    ax = gatingPlot(data1,None)   
+    gatingPlot(data2,ax)
 
 def sigmoid(z,h,kInv,minOp):
     return minOp +  (1.0-minOp)/(1.0 + np.exp((h-z)*kInv))
@@ -168,3 +189,40 @@ def solveSystemStandard(ac,TS,runTime,stimInfo={},
         data[key] = np.array(data[key])
     data["time"] = tv
     return data
+
+
+def addBasicChannelToSystem(allChannelData,neuronId,channelInfo):
+    #This is the minimum base function for adding a channel-like mechanism to the system
+    allChannelData["nChannels"]+=1  #not sure if i should do this at the start or end, probably doesnt matter
+    allChannelData["name"].append(channelInfo["name"])
+    allChannelData["postNeuron"].append(neuronId)
+    allChannelData["preNeuron"].append(neuronId)
+    zeroKeys = ["efficacy","conductanceGain","rate","gammaP","gammaD","thetaP","thetaD","inputDelay","current"]
+    for key in zeroKeys:
+        allChannelData[key].append(0)
+
+    gates = channelInfo["gates"]
+    gateSubKeys = gates[list(gates.keys())[0]].keys()
+    #pull out the data into a list
+    data = {gsk: [gv[gsk] for gv in gates.values()] for gsk in gateSubKeys}
+    for key,newData in data.items():
+        allChannelData[key].append(newData)
+
+    allChannelData["Erev"].append(channelInfo["Erev"])
+    allChannelData["conductance"].append(channelInfo["conductance"])
+    allChannelData["CaCurrent"].append(channelInfo["CaCurrent"])
+    # allChannelData["inputDelay"].append(0)
+    # allChannelData["current"].append(0)
+
+def addSynapseToSystem(preNeuron,postNeuron,synapseInfo,delayInt,allChannelData):
+    addBasicChannelToSystem(allChannelData,preNeuron,synapseInfo)
+    allChannelData["postNeuron"][-1] = postNeuron 
+    allChannelData["inputDelay"][-1] = delayInt
+    allChannelData["efficacy"][-1] = 0 #p, unitless
+    allChannelData["conductanceGain"][-1] = synapseInfo["conductanceGain"] if "conductanceGain" in synapseInfo.keys() else 0
+    allChannelData["rate"][-1] = synapseInfo["rate"] if "rate" in synapseInfo.keys() else 0 #ms
+    allChannelData["gammaP"][-1] = synapseInfo["gammaP"] if "gammaP" in synapseInfo.keys() else 0#p per ms
+    allChannelData["gammaD"][-1] = synapseInfo["gammaD"] if "gammaD" in synapseInfo.keys() else 0#p per ms
+    allChannelData["thetaP"][-1] = synapseInfo["thetaP"] if "thetaP" in synapseInfo.keys() else 0 #Ca mol/L
+    allChannelData["thetaD"][-1] = synapseInfo["thetaD"] if "thetaD" in synapseInfo.keys() else 0 #Ca mol/L
+    

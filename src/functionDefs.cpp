@@ -1,4 +1,8 @@
 #include "functionDefs.hpp"
+//#include <execution>
+#include <chrono>
+// #include <algorithm>
+// #include <functional>
 
 PYBIND11_MODULE(cathalTest, m) {
     m.def("testFunc",&testFunc,"run my lil test function",
@@ -153,13 +157,22 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
 
     size_t sampleInd = 0;
     
+    std::vector<int> indices(nChannels);
+    std::iota(indices.begin(), indices.end(), 0); // Fill it with consecutive numbers
 
+    //auto executionPolicy = std::execution::seq;
+    // std::for_each(executionPolicy, indices.begin(), indices.end(), [&](int connInd)  {
+
+    // });
+    auto start = std::chrono::high_resolution_clock::now();
     for (size_t timeInd=0;timeInd<nIterations;timeInd++){
         for (size_t idx=0;idx<nNeurons;idx++){
             netCurrent[idx] = 0.0;
             netCaCurrent[idx] = 0.0;
         }
         //Spike overwrite code needs to be implemented here 
+
+        
         for (int idx=0;idx<nChannels;idx++){
             //temporary variables
             postSynapticNeuron = postNeuron[idx];
@@ -272,6 +285,7 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
             sampleInd++;
             
         }
+        
     }
     // auto arr = py::array_t<float>({2, 3});
     // recordingInfo["test"] = arr;
@@ -291,7 +305,10 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
     //         py::print("After:", recordingInfo[key]);
     //     }
    
-   
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed = end - start;
+    py::print("Elapsed time in seconds:", elapsed.count());
+
     return py::none();
 }
 
