@@ -159,36 +159,7 @@ def solveNeurons(ac,TS):
         #spikeVals[i] = float(voltage[i] > 0) #we could add delays by making spikes be some dynamical system triggered by voltage > 0. (do a phase portrait to figure it out)            
         writeIndex[i] = (writeIndex[i]+1)%ac["maxDelayInt"]
 
-def solveSystemStandard(ac,TS,runTime,stimInfo={},
-                        recordingKeys = ["voltages","calciumVals","netCurrent","current"]):
-    nIterations = int(runTime/TS)
-    data = {key:[] for key in recordingKeys}
-    tv = np.linspace(0,runTime,nIterations)
-    nNeurons = ac["nNeurons"]
-    nChannels = ac["nChannels"]
-    for iteration,t in enumerate(tv):   
-        #calculate currents
-        ac["netCurrent"] = np.zeros([nNeurons])
-        ac["netCaCurrent"] = np.zeros([nNeurons])
-        spikeOverwriteList = np.zeros(nChannels)
-        if iteration in stimInfo.keys():
-            for syn in stimInfo[iteration]:
-                spikeOverwriteList[syn] = 1
 
-        #update the gates
-        solveChannels(ac,spikeOverwriteList,TS)
-
-        solveDiffusiveConnections(ac)
-
-        solveNeurons(ac,TS)
-
-        for key in data:
-            data[key].append(deepcopy(ac[key]))
-
-    for key in data:
-        data[key] = np.array(data[key])
-    data["time"] = tv
-    return data
 
 
 def addBasicChannelToSystem(allChannelData,neuronId,channelInfo):
