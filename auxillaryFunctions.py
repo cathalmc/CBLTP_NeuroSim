@@ -14,7 +14,7 @@ def standardPlot(data,ax=None,ls="-"):
             if len(val.shape)<3:
                 ax[i].plot(time,val,ls=ls)
             else:
-                ax[i].plot(time,val[:,-1,3],ls=ls)
+                ax[i].plot(time,val.sum(axis=2),ls=ls)
 
 def sideBySidePlot(data1,data2,ax=None):
     if ax is None:
@@ -63,6 +63,7 @@ def calcWeightChange(p,Ca,rate,gammaP,gammaD,thetaP,thetaD):
     Noise = 0
     return rate*fp+potentiation+depression+Noise
 
+
 def solveChannels(ac,spikeOverwriteList,TS):
     nChannels = ac["nChannels"]
     voltage = ac["voltages"]
@@ -74,13 +75,13 @@ def solveChannels(ac,spikeOverwriteList,TS):
         postSynapticNeuron = ac["postNeuron"][i]
         V = voltage[postSynapticNeuron]
         Ca = calciumVals[postSynapticNeuron]
-        preSynapticNeuron = ac["preNeuron"][i] #for channel this is = to postSynaptic neuron, and does not matter
-        #spikes = max(spikeVals[preSynapticNeuron],spikeOverwriteList[i])
+        preSynapticSpiker = ac["channelPreSpiker"][i] #for channel this is = to postSynaptic neuron, and does not matter
+        #spikes = max(spikeVals[preSynapticSpiker],spikeOverwriteList[i])
         xs = ac["x"][i]
         xhs,xks = ac["vHalf"][i],ac["vKi"][i]
         xts0,xts1 = ac["tau0"][i],ac["tau1"][i]
         xths,xtks = ac["th"][i],ac["tkInv"][i]
-        
+
         exponents = ac["exponent"][i]
         minOpenness = ac["minOpenness"][i]
         Erev = ac["Erev"][i]
@@ -104,8 +105,8 @@ def solveChannels(ac,spikeOverwriteList,TS):
         ac["current"][i] = I
 
         synapseDelay = ac["inputDelay"][i]
-        readIndex = int((writeIndex[preSynapticNeuron]-synapseDelay)%maxDelay)
-        perceivedSpike = ac["spikeBuffer"][preSynapticNeuron][readIndex]
+        readIndex = int((writeIndex[preSynapticSpiker]-synapseDelay)%maxDelay)
+        perceivedSpike = ac["spikeBuffer"][preSynapticSpiker][readIndex]
         perceivedSpike = max(perceivedSpike,spikeOverwriteList[i])
 
         xs[0] = solveGate(xs[0],V,tempTS,xhs[0],xks[0],xts0[0],xts1[0],xths[0],xtks[0],minOpenness[0]) #gate1
@@ -115,6 +116,7 @@ def solveChannels(ac,spikeOverwriteList,TS):
 
         dp = calcWeightChange(p,Ca,ac["rate"][i],ac["gammaP"][i],ac["gammaD"][i],ac["thetaP"][i],ac["thetaD"][i])
         ac["efficacy"][i]+=TS*dp
+
 
 def solveDiffusiveConnections(ac):
     netCurrent = ac["netCurrent"]
@@ -139,16 +141,15 @@ def solveDiffusiveConnections(ac):
         netCaCurrent[preSynapticNeuron] -= CaFlow*I
 
 def solveNeurons(ac,TS):
-    spikeBuffer = ac["spikeBuffer"]
+    #this function deals with determination of membrane voltage and calcium dynamics, 
+    # i have moved spiking dynamics to the solveSpikers function 
     voltage = ac["voltages"]
     nNeurons = ac["nNeurons"]
     calciumVals = ac["calciumVals"]
-    writeIndex = ac["writeIndex"]
     alpha = 1/(2*96485) #this is the conversion factor between current and Ca diffusion. scale it up if you want Ca in different units 
     CaEquilibriumVal = 0 #1 I think 1e-6 is reasonble, otsuka is 0
     CaRemovalRate = 2 #ms, this is the value otsuka uses, not sure where they get it from 
     for i in range(nNeurons):
-        spikeBuffer[i][writeIndex[i]] = int(voltage[i]>0)
         voltage[i] -= TS*(ac["netCurrent"][i]+ac["biasCurrents"][i])
         calciumVals[i] += TS*(-alpha*ac["netCaCurrent"][i] + (-calciumVals[i]+ CaEquilibriumVal)*CaRemovalRate) #This requires some explaination:
                         #We need to convert Ca current (in uA/cm^2) to Ca concentration (in mol/L) so I hardcode the conversion factor 
@@ -156,9 +157,23 @@ def solveNeurons(ac,TS):
                         #I've set the timeconstant for Ca regulation to be 0.5ms, which might be a little fast
                         #With this implementation its possible to have 1. calcium efflux (which is fine), and 2. negative Ca concentrations (which is not fine)
                         #but negative Ca would require persistent Vm>140mV which is unphysiological anyway. 
-        #spikeVals[i] = float(voltage[i] > 0) #we could add delays by making spikes be some dynamical system triggered by voltage > 0. (do a phase portrait to figure it out)            
-        writeIndex[i] = (writeIndex[i]+1)%ac["maxDelayInt"]
 
+
+def solveSpikers(ac,TS):
+    writeIndex = ac["writeIndex"]
+    spikerPreNeuron = ac["spikerPreNeuron"] #this si the neuron that gets checked 
+    spikerNeuronScale = ac["spikerNeuronScale"] #0 or 1
+    voltages = ac["voltages"]
+    spikeBuffer = ac["spikeBuffer"]
+    nSpikers = ac["nSpikers"]
+    spikerProbability = ac["spikerProbability"]
+    for i in range(nSpikers):
+        #randomOutput = bool(np.random.exp(spikerProbability*TS)>thresh) #TODO: actually figure this out
+        randomOutput = bool(np.random.random()<spikerProbability[i])
+        spikeOutput =  bool(spikerNeuronScale[i]*int(voltages[spikerPreNeuron[i]]>0))  # here we could actually implement transmitter release and short term plasticity dynamics 
+        spikeOutput = float(randomOutput or spikeOutput)                      # for now its very simple spike threshold 
+        spikeBuffer[i][writeIndex[i]] = spikeOutput         
+        writeIndex[i] = (writeIndex[i]+1)%ac["maxDelayInt"]
 
 
 
@@ -167,7 +182,7 @@ def addBasicChannelToSystem(allChannelData,neuronId,channelInfo):
     allChannelData["nChannels"]+=1  #not sure if i should do this at the start or end, probably doesnt matter
     allChannelData["name"].append(channelInfo["name"])
     allChannelData["postNeuron"].append(neuronId)
-    allChannelData["preNeuron"].append(neuronId)
+    allChannelData["channelPreSpiker"].append(neuronId)
     zeroKeys = ["efficacy","conductanceGain","rate","gammaP","gammaD","thetaP","thetaD","inputDelay","current"]
     for key in zeroKeys:
         allChannelData[key].append(0)
