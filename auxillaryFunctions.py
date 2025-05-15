@@ -211,4 +211,29 @@ def addSynapseToSystem(preNeuron,postNeuron,synapseInfo,delayInt,allChannelData)
     allChannelData["gammaD"][-1] = synapseInfo["gammaD"] if "gammaD" in synapseInfo.keys() else 0#p per ms
     allChannelData["thetaP"][-1] = synapseInfo["thetaP"] if "thetaP" in synapseInfo.keys() else 0 #Ca mol/L
     allChannelData["thetaD"][-1] = synapseInfo["thetaD"] if "thetaD" in synapseInfo.keys() else 0 #Ca mol/L
-    
+
+
+
+def genGate(vHalf,vKi,tau0,tau1,th,tkInv,x0=0.0,exponent=1,minOpenness=0):
+    return {"x":x0, "vHalf":vHalf,"vKi":vKi,"tau0":tau0,"tau1":tau1,"th":th,"tkInv":tkInv,"exponent":exponent,"minOpenness":minOpenness}
+
+def genOpenGate():
+    return genGate(-1000,1000,100,1000,0,0,x0=1)
+
+
+def genSynapseGate(xt1,TS):
+    xt0 = TS
+    xt1 = xt1-xt0
+    return genGate(0.5,100,xt0,xt1,0.5,-100)
+
+
+def genDefaultPlasticSynapseData(gain):
+    return {
+        "efficacy": 0, #p, unitless
+        "conductanceGain": gain, #
+        "rate": 0.05, #ms
+        "gammaP": 0.12, #p per ms
+        "gammaD": 0.078, #p per ms
+        "thetaP": 0.68, #Ca mol/L
+        "thetaD": 0.33, #Ca mol/L
+    }
