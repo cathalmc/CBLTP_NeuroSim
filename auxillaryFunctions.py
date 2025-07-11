@@ -182,7 +182,7 @@ def addBasicChannelToSystem(allChannelData,neuronId,channelInfo):
     allChannelData["nChannels"]+=1  #not sure if i should do this at the start or end, probably doesnt matter
     allChannelData["name"].append(channelInfo["name"])
     allChannelData["postNeuron"].append(neuronId)
-    allChannelData["channelPreSpiker"].append(neuronId)
+    allChannelData["channelPreSpiker"].append(neuronId) #default is neuronId if nothing else is provided later
     zeroKeys = ["efficacy","conductanceGain","rate","gammaP","gammaD","thetaP","thetaD","inputDelay","current"]
     for key in zeroKeys:
         allChannelData[key].append(0)
@@ -201,10 +201,11 @@ def addBasicChannelToSystem(allChannelData,neuronId,channelInfo):
     # allChannelData["current"].append(0)
 
 def addSynapseToSystem(preNeuron,postNeuron,synapseInfo,delayInt,allChannelData):
-    addBasicChannelToSystem(allChannelData,preNeuron,synapseInfo)
-    allChannelData["postNeuron"][-1] = postNeuron 
+    addBasicChannelToSystem(allChannelData,postNeuron,synapseInfo)
+    #allChannelData["postNeuron"][-1] = postNeuron 
+    allChannelData["channelPreSpiker"][-1] = preNeuron
     allChannelData["inputDelay"][-1] = delayInt
-    allChannelData["efficacy"][-1] = 0 #p, unitless
+    allChannelData["efficacy"][-1] = synapseInfo["efficacy"] if "efficacy" in synapseInfo.keys() else 0 #p, unitless, default efficacy is initialized to 0
     allChannelData["conductanceGain"][-1] = synapseInfo["conductanceGain"] if "conductanceGain" in synapseInfo.keys() else 0
     allChannelData["rate"][-1] = synapseInfo["rate"] if "rate" in synapseInfo.keys() else 0 #ms
     allChannelData["gammaP"][-1] = synapseInfo["gammaP"] if "gammaP" in synapseInfo.keys() else 0#p per ms
@@ -237,3 +238,48 @@ def genDefaultPlasticSynapseData(gain):
         "thetaP": 0.68, #Ca mol/L
         "thetaD": 0.33, #Ca mol/L
     }
+
+def genAMPA(TS,baseConductance,conductanceGain = 10):
+    #for the synapses to work properly you need to know TS
+    #This lets the conductance go instantly from 0 to 1
+    AMPA = {"name":"AMPAR",
+                "ion":"Cation",
+            "Erev": 0,
+            "conductance": baseConductance,
+            "current":0,
+            "CaCurrent": 0,
+            "gates":{
+            "vGate1":genOpenGate(),
+            "vGate2":genOpenGate(),
+            "CaGate":genOpenGate(),
+            "spikeGate":genSynapseGate(7,TS)}} #decay is about 7ms for AMPA and GABA, though it can vary a lot, tbh this could be a random variable
+    
+    for key,val in genDefaultPlasticSynapseData(conductanceGain).items():
+        AMPA[key] = val
+
+    return AMPA
+
+def genNMDA(TS,baseConductance,conductanceGain = 10):
+    #NOTE: not sure if timescale is correct
+    timeScale = 100
+    NMDA = {"name":"NMDAR",
+                "ion":"Cation",
+            "Erev": 0,
+            "conductance": baseConductance,
+            "current":0,
+            "CaCurrent": 1,
+            "gates":{
+            "vGate1":genGate(-30,1/8,0.1,0.1,-1000,100),
+            "vGate2":genOpenGate(),
+            "CaGate":genOpenGate(),
+            "spikeGate":genSynapseGate(timeScale,TS)}}
+    for key,val in genDefaultPlasticSynapseData(conductanceGain).items():
+        NMDA[key] = val
+
+    return NMDA
+
+
+def genGABA(TS,baseConductance,conductanceGain):
+    GABA = genAMPA(TS,baseConductance,conductanceGain)
+    GABA["Erev"] = -80
+    return GABA
