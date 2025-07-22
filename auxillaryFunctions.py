@@ -134,10 +134,10 @@ def solveDiffusiveConnections(ac):
         I = diffusionRate*(Vpost-Vpre)
         CaFlow = diffusionRate*(Capost-Capre) #technically this is electrodiffusion so I should probably implement that correctly 
 
-        netCurrent[postSynapticNeuron] -= I
-        netCaCurrent[postSynapticNeuron] += CaFlow*I
+        netCurrent[postSynapticNeuron] += I
+        netCaCurrent[postSynapticNeuron] += CaFlow*I #we are assuming Ca is flowing between compartments but this probably isnt the case due to sequestration
 
-        netCurrent[preSynapticNeuron] += I
+        netCurrent[preSynapticNeuron] -= I
         netCaCurrent[preSynapticNeuron] -= CaFlow*I
 
 def solveNeurons(ac,TS):
@@ -182,7 +182,7 @@ def addBasicChannelToSystem(allChannelData,neuronId,channelInfo):
     allChannelData["nChannels"]+=1  #not sure if i should do this at the start or end, probably doesnt matter
     allChannelData["name"].append(channelInfo["name"])
     allChannelData["postNeuron"].append(neuronId)
-    allChannelData["channelPreSpiker"].append(neuronId) #default is neuronId if nothing else is provided later
+    allChannelData["channelPreSpiker"].append(0) #default is 0 if nothing else is provided later
     zeroKeys = ["efficacy","conductanceGain","rate","gammaP","gammaD","thetaP","thetaD","inputDelay","current"]
     for key in zeroKeys:
         allChannelData[key].append(0)
