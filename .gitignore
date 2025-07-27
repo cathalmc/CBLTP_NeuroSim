@@ -2,3 +2,5 @@
 /build
 __pycache__/auxillaryFunctions.cpython-310.pyc
 __pycache__/auxillaryFunctions.cpython-313.pyc
+*./pyc
+
