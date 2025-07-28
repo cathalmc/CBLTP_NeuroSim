@@ -70,7 +70,6 @@ def solveChannels(ac,spikeOverwriteList,TS):
     calciumVals = ac["calciumVals"]
     writeIndex = ac["writeIndex"]
     maxDelay = ac["maxDelayInt"]
-
     for i in range(nChannels):
         postSynapticNeuron = ac["postNeuron"][i]
         V = voltage[postSynapticNeuron]
@@ -81,7 +80,7 @@ def solveChannels(ac,spikeOverwriteList,TS):
         xhs,xks = ac["vHalf"][i],ac["vKi"][i]
         xts0,xts1 = ac["tau0"][i],ac["tau1"][i]
         xths,xtks = ac["th"][i],ac["tkInv"][i]
-
+        
         exponents = ac["exponent"][i]
         minOpenness = ac["minOpenness"][i]
         Erev = ac["Erev"][i]
@@ -100,9 +99,11 @@ def solveChannels(ac,spikeOverwriteList,TS):
 
         g = g0 + w*p
         I = g*gatingTotal*(V-Erev) 
-        ac["netCurrent"][postSynapticNeuron] += I
-        ac["netCaCurrent"][postSynapticNeuron] += CaCurrent*I
+        #ac["netCurrent"][postSynapticNeuron] += I
+        #ac["netCaCurrent"][postSynapticNeuron] += CaCurrent*I
         ac["current"][i] = I
+        ac["CaChannelCurrent"][i] = CaCurrent*I #NOTE: Warning, we already have a variable called CaCurrent which tells you if a current is relevant to Ca change
+        ac["debugRecording"][i] = gatingTotal #NOTE:27/7/25 change this in future, its just for debugging
 
         synapseDelay = ac["inputDelay"][i]
         readIndex = int((writeIndex[preSynapticSpiker]-synapseDelay)%maxDelay)
@@ -140,18 +141,18 @@ def solveDiffusiveConnections(ac):
         netCurrent[preSynapticNeuron] -= I
         netCaCurrent[preSynapticNeuron] -= CaFlow*I
 
-def solveNeurons(ac,TS):
+def solveNeurons(ac,biasOverWriteList,TS):
     #this function deals with determination of membrane voltage and calcium dynamics, 
     # i have moved spiking dynamics to the solveSpikers function 
     voltage = ac["voltages"]
     nNeurons = ac["nNeurons"]
     calciumVals = ac["calciumVals"]
-    alpha = 1/(2*96485) #this is the conversion factor between current and Ca diffusion. scale it up if you want Ca in different units 
-    CaEquilibriumVal = 0 #1 I think 1e-6 is reasonble, otsuka is 0
-    CaRemovalRate = 2 #ms, this is the value otsuka uses, not sure where they get it from 
+    alpha = 1/(2*96485) #this is the conversion factor between current and Ca diffusion (1/zF). scale it up if you want Ca in different units 
+    CaEquilibriumVal = ac["CaEquilibriumVal"] #1 I think 1e-6 is reasonble, otsuka is 0 
+    CaRemovalRate = ac["CaRemovalRate"] #ms, this is the value otsuka uses, not sure where they get it from 
     for i in range(nNeurons):
-        voltage[i] -= TS*(ac["netCurrent"][i]+ac["biasCurrents"][i])
-        calciumVals[i] += TS*(-alpha*ac["netCaCurrent"][i] + (-calciumVals[i]+ CaEquilibriumVal)*CaRemovalRate) #This requires some explaination:
+        voltage[i] -= TS*(ac["netCurrent"][i]+ac["biasCurrents"][i]+biasOverWriteList[i])
+        calciumVals[i] += TS*(-alpha*ac["netCaCurrent"][i] + (-calciumVals[i]+ CaEquilibriumVal[i])*CaRemovalRate[i]) #This requires some explaination:
                         #We need to convert Ca current (in uA/cm^2) to Ca concentration (in mol/L) so I hardcode the conversion factor 
                         #Cellular Ca is tightly regulated to ~uM concentrations, so I've included a fixed point at 1e-6.
                         #I've set the timeconstant for Ca regulation to be 0.5ms, which might be a little fast
@@ -159,16 +160,17 @@ def solveNeurons(ac,TS):
                         #but negative Ca would require persistent Vm>140mV which is unphysiological anyway. 
 
 
-def solveSpikers(ac,TS):
+
+
+def solveSpikers(ac):
     writeIndex = ac["writeIndex"]
-    spikerPreNeuron = ac["spikerPreNeuron"] #this si the neuron that gets checked 
+    spikerPreNeuron = ac["spikerPreNeuron"] #this is the neuron that gets checked 
     spikerNeuronScale = ac["spikerNeuronScale"] #0 or 1
     voltages = ac["voltages"]
     spikeBuffer = ac["spikeBuffer"]
     nSpikers = ac["nSpikers"]
     spikerProbability = ac["spikerProbability"]
     for i in range(nSpikers):
-        #randomOutput = bool(np.random.exp(spikerProbability*TS)>thresh) #TODO: actually figure this out
         randomOutput = bool(np.random.random()<spikerProbability[i])
         spikeOutput =  bool(spikerNeuronScale[i]*int(voltages[spikerPreNeuron[i]]>0))  # here we could actually implement transmitter release and short term plasticity dynamics 
         spikeOutput = float(randomOutput or spikeOutput)                      # for now its very simple spike threshold 
@@ -177,13 +179,57 @@ def solveSpikers(ac,TS):
 
 
 
+def solveSystemStandard(ac,TS,runTime,stimInfoSpikes={},stimInfoCurrents= {},
+                        recordingKeys = ["voltages","calciumVals","netCurrent","current","spikeBuffer"]):
+    nIterations = int(runTime/TS)
+    data = {key:[] for key in recordingKeys}
+    tv = np.linspace(0,runTime,nIterations)
+    nNeurons = ac["nNeurons"]
+    nChannels = ac["nChannels"]
+    for iteration,t in enumerate(tv):
+        #calculate currents
+        ac["netCurrent"] = np.zeros([nNeurons])
+        ac["netCaCurrent"] = np.zeros([nNeurons])
+        spikeOverwriteList = np.zeros(nChannels)
+        biasOverWriteList = np.zeros(nNeurons)
+        if iteration in stimInfoSpikes.keys():
+            for syn in stimInfoSpikes[iteration]:
+                spikeOverwriteList[syn] = 1
+                
+        if iteration in stimInfoCurrents.keys():
+            for neur,val in stimInfoCurrents[iteration].items():
+                biasOverWriteList[neur] = val
+
+        #update the gates
+        solveChannels(ac,spikeOverwriteList,TS)
+
+        solveDiffusiveConnections(ac)
+
+        #Accumulate current
+        np.add.at(ac["netCurrent"],ac["postNeuron"],ac["current"])
+        np.add.at(ac["netCaCurrent"],ac["postNeuron"],ac["CaChannelCurrent"])
+
+        solveNeurons(ac,biasOverWriteList,TS)
+
+        solveSpikers(ac)
+
+        for key in data:
+            data[key].append(deepcopy(ac[key]))
+
+    for key in data:
+        data[key] = np.array(data[key])
+    data["time"] = tv
+    return data
+
 def addBasicChannelToSystem(allChannelData,neuronId,channelInfo):
     #This is the minimum base function for adding a channel-like mechanism to the system
     allChannelData["nChannels"]+=1  #not sure if i should do this at the start or end, probably doesnt matter
     allChannelData["name"].append(channelInfo["name"])
     allChannelData["postNeuron"].append(neuronId)
     allChannelData["channelPreSpiker"].append(0) #default is 0 if nothing else is provided later
-    zeroKeys = ["efficacy","conductanceGain","rate","gammaP","gammaD","thetaP","thetaD","inputDelay","current"]
+    zeroKeys = ["efficacy","conductanceGain","rate","gammaP","gammaD","thetaP","thetaD",
+                "inputDelay","current","CaChannelCurrent"]
+    
     for key in zeroKeys:
         allChannelData[key].append(0)
 
@@ -283,3 +329,202 @@ def genGABA(TS,baseConductance,conductanceGain):
     GABA = genAMPA(TS,baseConductance,conductanceGain)
     GABA["Erev"] = -80
     return GABA
+
+
+
+def addSpikerToSystem(ac,spkrDict,spikerPreNeuron):
+    #all the stuff normally realting to neural spiking gets added here
+    #spikes can be triggered either randomly and/or by spike thresholding in the presynaptic neuron
+    #the simulation code checks for both conditions. To have only random spiking, choose an aribitrary presynaptic neuron (e.g. neuron 0),
+    #and set the spikeNeuronScale = 0. To have only neuron spiking, set spikerProbability to 0.
+    ac["spikerPreNeuron"].append(spikerPreNeuron)
+    ac["spikerNeuronScale"].append(spkrDict["spikerNeuronScale"]) #0 for random, 1 for neuron based and random
+    ac["spikerProbability"].append(spkrDict["spikerProbability"]) #set to 0 to remove random spiking
+
+
+
+
+def addDiffusiveConnection(allChannelData,preNeuron,postNeuron,diffusionRate):
+        allChannelData["diffPostNeuron"].append(postNeuron)
+        allChannelData["diffPreNeuron"].append(preNeuron)
+        allChannelData["diffRate"].append(diffusionRate)
+        allChannelData["nDiffusiveConnections"]+=1
+
+def getNeuronAndSpikerMaps(neuronDict,spikerDict):
+    segmentIndex = 0
+    spikerIndex = 0
+    neuronPopToGlobalSegmentMap = {} #maps neurons onto the compartments containing their channels.
+                                    #This is important for mapping synpatic currents onto compartments
+    neuronPopToSpiker = {} #maps neurons onto their output spikers 
+    #We can then take a synapse and use it to map output spikers to dendritic segments
+
+    for neuronType,neurons in neuronDict.items():
+        neuronPopToGlobalSegmentMap[neuronType] = {}
+        neuronPopToSpiker[neuronType] = {}
+        for neuron in neurons:
+            neuronPopToGlobalSegmentMap[neuronType][neuron.id] = {}
+            neuronPopToSpiker[neuronType][neuron.id] = spikerIndex
+            spikerIndex +=1
+            for segment,segmentInfo in neuron.segments.items():
+                neuronPopToGlobalSegmentMap[neuronType][neuron.id][segment] = segmentIndex
+                segmentIndex+=1
+
+    for spikerType,spikerVal in spikerDict.items():
+        neuronPopToSpiker[spikerType] = {}
+        for spkr in spikerVal:
+            neuronPopToSpiker[spikerType][spkr.id] = spikerIndex
+            spikerIndex+=1
+                
+
+    return neuronPopToGlobalSegmentMap,neuronPopToSpiker
+
+def genSimData(neuronDict,spikerDict,synapseDict,TS):
+    #I have been referring to neuron segments as "neurons", because initialy this was a single compartment simulation
+    #However I should probably start referring to them as "segments"
+    simulationData = {key:[] for key in genOpenGate().keys()}
+    listKeys = ["biasCurrents","CaEquilibriumVal","CaRemovalRate", #neuron (segment) properties
+                "postNeuron","channelPreSpiker","conductance","Erev","CaCurrent","inputDelay", #channel parameters
+                "efficacy","conductanceGain","rate","gammaP","gammaD","thetaP","thetaD", #plasticity parameters
+                "diffPostNeuron","diffPreNeuron","diffRate","current","CaChannelCurrent","name",#diffusion parameters
+                "spikerPreNeuron","spikerNeuronScale","spikerProbability"] #spiker parameters 
+    valueKeys = ["nChannels","nDiffusiveConnections","nSpikers","nNeurons"]
+
+    for key in listKeys:
+        simulationData[key] = []
+    for key in valueKeys:
+        simulationData[key] = 0
+
+    neuronPopToGlobalSegmentMap,neuronPopToSpiker = getNeuronAndSpikerMaps(neuronDict,spikerDict)
+
+    for neuronType,neurons in neuronDict.items():
+        for neuron in neurons:
+            globalSpikerId = neuronPopToSpiker[neuron.name][neuron.id]
+            addSpikerToSystem(simulationData,neuron.spiker,globalSpikerId)
+            for segment,segmentInfo in neuron.segments.items():
+                for channelName,channelData in segmentInfo["channels"].items():
+                    globalId = neuronPopToGlobalSegmentMap[neuron.name][neuron.id][segment]
+                    addBasicChannelToSystem(simulationData,globalId,channelData)
+                simulationData["biasCurrents"].append(segmentInfo["bias"])
+                simulationData["CaEquilibriumVal"].append(segmentInfo["CaEquilibriumVal"])
+                simulationData["CaRemovalRate"].append(segmentInfo["CaRemovalRate"])
+
+
+    for spikerName,spikerVal in spikerDict.items():
+        for spkr in spikerVal:
+            addSpikerToSystem(simulationData,spkr.spiker,0)
+
+    nNeurons = len(simulationData["biasCurrents"])
+    nSpikers = len(simulationData["spikerPreNeuron"])
+    simulationData["nNeurons"] = nNeurons
+    simulationData["nSpikers"] = nSpikers
+    #############################################################################################
+    #efficacy, conductanceGain, rate, gammaP, gammaD, thetaP, thetaD,
+    
+    simulationData["writeIndex"] = np.zeros(nSpikers,dtype=np.int32)
+    maxDelayInt = 1 #default to 1
+    connectionToChannelMap = {} #it might be more elegant to have this somewhere outside this function, but it'll be fine here for now
+                                #also we might want to do different indexing in future, e.g. connectionToChannelMap[synapseGroup][preNeuron][postNeuron][synType]
+    for synapseGroupName,synapseGroupData in synapseDict.items():
+        connectionToChannelMap[synapseGroupName] = {}
+        for connInd,connection in enumerate(synapseGroupData):
+            preLocalIndex,postLocalIndex = connection["pre"],connection["post"]
+            preName,postName = connection["preName"],connection["postName"]
+            segmentIndex = connection["segmentIndex"]
+            preSynapticSpikerIndex = neuronPopToSpiker[preName][preLocalIndex]
+            postSynapticSegmentIndex = neuronPopToGlobalSegmentMap[postName][postLocalIndex][segmentIndex]
+            synapseData = connection["synapse"]
+            delay = connection["delay"] #in ms
+            delayInt = int(np.ceil(delay/TS))
+            maxDelayInt = max(delayInt,maxDelayInt)
+            assert 0<=preSynapticSpikerIndex<nSpikers and 0<=postSynapticSegmentIndex<nNeurons, f"edge out of range {preSynapticSpikerIndex},{postSynapticSegmentIndex}"
+            addSynapseToSystem(preSynapticSpikerIndex,postSynapticSegmentIndex,synapseData,delayInt,simulationData)
+            connectionToChannelMap[synapseGroupName][connInd] = simulationData["nChannels"]
+
+
+    #Diffusive connections
+    for neuronType,neurons in neuronDict.items():
+        for neuron in neurons:
+            for edge in neuron.segmentNetwork:
+                preSegLocalInd,postSegLocalInd,diffusionRate = edge
+                preSegmentIndex = neuronPopToGlobalSegmentMap[neuronType][neuron.id][preSegLocalInd]
+                postSegmentIndex = neuronPopToGlobalSegmentMap[neuronType][neuron.id][postSegLocalInd]
+                assert preSegmentIndex<nNeurons and postSegmentIndex<nNeurons, f"edge out of range {preSegmentIndex},{postSegmentIndex}"
+                addDiffusiveConnection(simulationData,preSegmentIndex,postSegmentIndex,diffusionRate)
+
+    simulationData["maxDelayInt"] = maxDelayInt
+    simulationData["voltages"] = -75*np.ones(nNeurons,dtype = np.float32) + 1*np.arange(0,nNeurons,dtype=np.float32)
+    simulationData["calciumVals"] = np.zeros(nNeurons,dtype = np.float32)
+    simulationData["spikeVals"] = np.zeros(nSpikers,dtype = np.float32)
+    simulationData["netCurrent"] = np.zeros(nNeurons,dtype = np.float32)
+    simulationData["netCaCurrent"] = np.zeros(nNeurons,dtype = np.float32)
+    simulationData["spikeBuffer"] = np.zeros((nSpikers,maxDelayInt),dtype=bool) #we could use float if we wanted some kind of scaling, but for perf we use bool
+
+    intKeys = ["channelPreSpiker","postNeuron", "nChannels","diffPostNeuron",
+               "diffPreNeuron","nDiffusiveConnections","writeIndex",
+               "maxDelayInt","inputDelay","nNeurons","nSpikers","spikerPreNeuron"]
+    
+    nonArrayKeys = ["nNeurons","maxDelayInt","nChannels","nDiffusiveConnections","name","nSpikers"]
+    for key in simulationData.keys():
+        val = simulationData[key]
+        if key in intKeys: arrDtype = np.int32
+        else: arrDtype = np.float32
+
+        if key in nonArrayKeys:
+            pass
+        elif type(val) in [list,tuple]:
+            simulationData[key] = np.ascontiguousarray(val,dtype = arrDtype)
+        elif type(val)  == np.ndarray:
+            simulationData[key] = np.ascontiguousarray(val,dtype = val.dtype)
+        else:
+            print(f"Warning {key} is not a list or tuple") 
+    
+    return simulationData,connectionToChannelMap
+
+
+class Neuron():
+    def __init__(self,index,name,neuronType,AISchannels,AISbias,denderiteInfo={},dendriteMap=[],CaEquilibriumVal=0,CaRemovalRate=2):
+        neuronTypeToSynapseList = {"excitatory":["AMPA","NMDA"],#,
+                                   "inhibitory":["GABA"]}
+        self.id = index
+        self.name=name
+        self.outgoingSynapses = neuronTypeToSynapseList[neuronType]
+        self.segments = {0:{"channels":AISchannels,"bias":AISbias,"CaEquilibriumVal":CaEquilibriumVal,"CaRemovalRate":CaRemovalRate}}
+        for i,dInfo in enumerate(denderiteInfo):
+            self.segments[i+1] = deepcopy(dInfo)
+        self.segmentNetwork = deepcopy(dendriteMap)
+        self.spiker = {"spikerNeuronScale":1,"spikerProbability":0}
+        #CaEquilibriumVal #equilib value of calcium in mM/L (otsuka neurons assume its 0, in reality its around 1e-6)
+        #CaRemovalRate #timescale on which calcium is removed (typically 2ms)
+        
+        
+class Spiker():
+    def __init__(self,index,name,neuronType,spikeRate,TS):
+        neuronTypeToSynapseList = {"excitatory":["AMPA","NMDA"],#,"NMDA"
+                                   "inhibitory":["GABA"]}
+        
+        self.id = index
+        self.name = name
+        self.outgoingSynapses = neuronTypeToSynapseList[neuronType]
+        self.spiker = {"spikerNeuronScale":0,"spikerProbability":spikeRate*TS/1000.0}
+
+
+def createSynapses(prePopulation,postPopulation,nSynapses,baseConductance,delay,TS):
+    synapses = {"AMPA":genAMPA(TS,baseConductance,conductanceGain=0),
+                "NMDA":genNMDA(TS,baseConductance,conductanceGain=0),
+                "GABA":genGABA(TS,baseConductance,conductanceGain=0)}
+
+    nPre,nPost = len(prePopulation),len(postPopulation)
+    preVals = np.random.randint(0,nPre,nSynapses)
+    postVals = np.random.randint(0,nPost,nSynapses)
+    synapseTypes = prePopulation[0].outgoingSynapses
+    preName = prePopulation[0].name
+    postName = postPopulation[0].name
+    synapseData = []
+    for e0,e1 in zip(preVals,postVals):
+        for synapse in synapseTypes:
+            nSegments = len(postPopulation[e1].segments)
+            segmentIndex = np.random.randint(nSegments)
+            synapseInfo = synapses[synapse]
+            synDat = {"pre":e0,"post":e1,"synapse":deepcopy(synapseInfo),"delay":delay,"preName":preName,"postName":postName,"segmentIndex":segmentIndex}
+            synapseData.append(synDat)
+    return synapseData

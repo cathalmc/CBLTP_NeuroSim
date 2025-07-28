@@ -172,7 +172,7 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
         }
         //Spike overwrite code needs to be implemented here 
 
-        
+        //Solve Channels 
         for (int idx=0;idx<nChannels;idx++){
             //temporary variables
             postSynapticNeuron = postNeuron[idx];
@@ -223,6 +223,8 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
             }
 
         }
+
+        //Solve diffusive connections
         for (size_t idx=0;idx<nDiffusiveConnections;idx++){
             int preSynapticNeuron = diffPreNeuron[idx];
             int postSynapticNeuron = diffPostNeuron[idx];
