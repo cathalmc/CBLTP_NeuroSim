@@ -40,10 +40,11 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
     //systemInfo is a dict of numpy arrays, we need to extract these arrays and process them in place
     
     constexpr float alpha = 1.0/(2.0*96485); //converts current to calcium diffusion, 
-    constexpr float CaEquilibriumVal = 0.0f; // should be 1e-6, but keeping it 0 for consistency with otsuka
-    constexpr float CaRemovalRate = 2.0f; //from otsuka
+    // constexpr float CaEquilibriumVal = 0.0f; // should be 1e-6, but keeping it 0 for consistency with otsuka
+    // constexpr float CaRemovalRate = 2.0f; //from otsuka
     //Single values 
     int nNeurons = systemInfo["nNeurons"].cast<int>();
+    int nSpikers = systemInfo["nSpikers"].cast<int>();
     int nChannels = systemInfo["nChannels"].cast<int>();
     int nDiffusiveConnections = systemInfo["nDiffusiveConnections"].cast<int>();
     int maxDelayInt = systemInfo["maxDelayInt"].cast<int>();
@@ -51,7 +52,18 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
     //Neuron data
     auto biasCurrentsBuffer = systemInfo["biasCurrents"].cast<py::array_t<float>>().request();
     float *biasCurrents = (float*)(biasCurrentsBuffer.ptr);
+    auto CaEquilibriumValBuffer = systemInfo["CaEquilibriumVal"].cast<py::array_t<float>>().request();
+    float *CaEquilibriumVal = (float*)(CaEquilibriumValBuffer.ptr);
+    auto CaRemovalRateBuffer = systemInfo["CaRemovalRate"].cast<py::array_t<float>>().request();
+    float *CaRemovalRate = (float*)(CaRemovalRateBuffer.ptr);
 
+    //Neuron data
+    auto spikerPreNeuronBuffer = systemInfo["spikerPreNeuron"].cast<py::array_t<int>>().request();
+    int *spikerPreNeuron = (int*)(spikerPreNeuronBuffer.ptr);
+    auto spikerNeuronScaleBuffer = systemInfo["spikerNeuronScale"].cast<py::array_t<float>>().request();
+    float *spikerNeuronScale = (float*)(spikerNeuronScaleBuffer.ptr);
+    auto spikerProbabilityBuffer = systemInfo["spikerProbability"].cast<py::array_t<float>>().request();
+    float *spikerProbability = (float*)(spikerProbabilityBuffer.ptr);
 
     //bool arrays
     auto spikeBufferBuffer = systemInfo["spikeBuffer"].cast<py::array_t<bool, py::array::c_style>>().request();
@@ -66,8 +78,8 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
     
     //integer arrays
     //intKeys = ["preNeuron","postNeuron","diffPostNeuron","diffPreNeuron","writeIndex", "inputDelay"]
-    auto preNeuronBuffer = systemInfo["preNeuron"].cast<py::array_t<int>>().request();
-    int *preNeuron = static_cast<int*>(preNeuronBuffer.ptr);
+    auto channelPreSpikerBuffer = systemInfo["channelPreSpiker"].cast<py::array_t<int>>().request();
+    int *channelPreSpiker = static_cast<int*>(channelPreSpikerBuffer.ptr);
     auto postNeuronBuffer = systemInfo["postNeuron"].cast<py::array_t<int>>().request();
     int *postNeuron = static_cast<int*>(postNeuronBuffer.ptr);
     auto diffPreNeuronBuffer = systemInfo["diffPreNeuron"].cast<py::array_t<int>>().request();
@@ -99,7 +111,8 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
     float * netCaCurrent = (float *) netCaCurrentBuffer.ptr;
     auto channelCurrentBuffer = systemInfo["current"].cast<py::array_t<float>>().request();
     float * channelCurrent = (float *) channelCurrentBuffer.ptr;
-
+    auto CaChannelCurrentBuffer = systemInfo["CaChannelCurrent"].cast<py::array_t<float>>().request();
+    float * CaChannelCurrent = (float *) CaChannelCurrentBuffer.ptr;
 
     //gating data 
     //x', 'vHalf', 'vKi', 'tau0', 'tau1', 'th', 'tkInv', 'exponent',"minOpenness" , 
@@ -171,6 +184,7 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
             netCaCurrent[idx] = 0.0;
         }
         //Spike overwrite code needs to be implemented here 
+        
 
         //Solve Channels 
         for (int idx=0;idx<nChannels;idx++){
@@ -178,7 +192,7 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
             postSynapticNeuron = postNeuron[idx];
             V = voltages[postSynapticNeuron];
             Ca = calciumVals[postSynapticNeuron];
-            preSynapticNeuron = preNeuron[idx];
+            preSynapticNeuron = channelPreSpiker[idx];
             //spikes = spikeVals[postSynapticNeuron];
 
             g = conductance[idx] + conductanceGain[idx]*efficacy[idx];
@@ -191,10 +205,11 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
             }
 
             I = g*gatingTotal*(V-Erevs[idx]);// g*gatingTotal*(V-Erev);
-            netCurrent[postSynapticNeuron] += I;
-            netCaCurrent[postSynapticNeuron] += isThisCaCurrent[idx]*I;
-            channelCurrent[idx] = I; //this is just for recording 
-            
+            // netCurrent[postSynapticNeuron] += I;
+            // netCaCurrent[postSynapticNeuron] += isThisCaCurrent[idx]*I;
+            channelCurrent[idx] = I; //we accumulate later
+            CaChannelCurrent[idx] = isThisCaCurrent[idx]*I;
+
             readIndex = ((writeIndex[preSynapticNeuron] - inputDelay[idx]) % maxDelayInt + maxDelayInt) % maxDelayInt;
             //readIndex = (writeIndex[preSynapticNeuron]-inputDelay[idx])%maxDelayInt;
             perceivedSpike = (float)spikeBuffer[preSynapticNeuron*spikeBufferNeuronStride+readIndex]; //shit its a flattened 2d array, need to deal with the awkward indexing 
@@ -223,8 +238,15 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
             }
 
         }
+        //accumulate in a separate loop to allow for parallelizing the above loop
+        for (int idx=0;idx<nChannels;idx++){
+            postSynapticNeuron = postNeuron[idx];
+            I = channelCurrent[idx];
+            netCurrent[postSynapticNeuron] += I;
+            netCaCurrent[postSynapticNeuron] += isThisCaCurrent[idx]*I;
+        }
 
-        //Solve diffusive connections
+        //Solve diffusive connections. could also be parallelized, but its relatively not as big
         for (size_t idx=0;idx<nDiffusiveConnections;idx++){
             int preSynapticNeuron = diffPreNeuron[idx];
             int postSynapticNeuron = diffPostNeuron[idx];
@@ -237,23 +259,29 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
             float I = diffRate[idx]*(Vpost - Vpre);
             float CaFlow = diffRate[idx]*(Capost - Capre);
 
-            netCurrent[postSynapticNeuron] -= I;
+            netCurrent[postSynapticNeuron] += I;
             netCaCurrent[postSynapticNeuron] += CaFlow*I;
 
-            netCurrent[preSynapticNeuron] += I;
+            netCurrent[preSynapticNeuron] -= I;
             netCaCurrent[preSynapticNeuron] -= CaFlow*I;
 
         }
             
-        
+        //Solve neurons
         for (size_t idx=0;idx<nNeurons;idx++){
-            constexpr float vThreshold = 0.0f;
+            voltages[idx] -= timeStep*(netCurrent[idx]+biasCurrents[idx]); //+bias overwrite list 
+            calciumVals[idx] += timeStep*(-alpha*netCaCurrent[idx] + (-calciumVals[idx] + CaEquilibriumVal[idx])*CaRemovalRate[idx]);
+        }
+
+        //Solve spikers
+        constexpr float vThreshold = 0.0f;
+        for (size_t idx=0;idx<nSpikers;idx++){
+            //29/7 continue implenting spikers 
             spikeBuffer[idx*spikeBufferNeuronStride + writeIndex[idx]] = (int) (voltages[idx]>vThreshold); //think L and R values for later 
-            voltages[idx] -= timeStep*(netCurrent[idx]+biasCurrents[idx]);
-            calciumVals[idx] += timeStep*(-alpha*netCaCurrent[idx] + (-calciumVals[idx] + CaEquilibriumVal)*CaRemovalRate);
             writeIndex[idx] = (writeIndex[idx]+1)%maxDelayInt;
 
         }
+
         //maybe add a guard for the case where there is only one sim iter, or deal with that on the python side
         if (timeInd%samplingInterval == 0){
             for (auto item : recordingInfo) {
