@@ -1,6 +1,7 @@
 #include "functionDefs.hpp"
 //#include <execution>
 #include <chrono>
+#include <random>
 // #include <algorithm>
 // #include <functional>
 
@@ -38,7 +39,10 @@ inline float calcWeightChange(float p, float Ca, float rate, float gammaP, float
 py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo, 
                             float timeStep,int nIterations,int samplingInterval) {
     //systemInfo is a dict of numpy arrays, we need to extract these arrays and process them in place
-    
+    std::random_device rd;  // seed
+    std::mt19937 gen(rd()); // Mersenne Twister engine
+    std::uniform_real_distribution<float> uniformFloatDist(0.0f, 1.0f);
+
     constexpr float alpha = 1.0/(2.0*96485); //converts current to calcium diffusion, 
     // constexpr float CaEquilibriumVal = 0.0f; // should be 1e-6, but keeping it 0 for consistency with otsuka
     // constexpr float CaRemovalRate = 2.0f; //from otsuka
@@ -113,7 +117,9 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
     float * channelCurrent = (float *) channelCurrentBuffer.ptr;
     auto CaChannelCurrentBuffer = systemInfo["CaChannelCurrent"].cast<py::array_t<float>>().request();
     float * CaChannelCurrent = (float *) CaChannelCurrentBuffer.ptr;
-
+    auto debugRecordingBuffer = systemInfo["debugRecording"].cast<py::array_t<float>>().request();
+    float * debugRecording = (float *) debugRecordingBuffer.ptr;
+    
     //gating data 
     //x', 'vHalf', 'vKi', 'tau0', 'tau1', 'th', 'tkInv', 'exponent',"minOpenness" , 
     auto xBuffer = systemInfo["x"].cast<py::array_t<float>>().request(); //.ptr;
@@ -185,7 +191,6 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
         }
         //Spike overwrite code needs to be implemented here 
         
-
         //Solve Channels 
         for (int idx=0;idx<nChannels;idx++){
             //temporary variables
@@ -209,6 +214,7 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
             // netCaCurrent[postSynapticNeuron] += isThisCaCurrent[idx]*I;
             channelCurrent[idx] = I; //we accumulate later
             CaChannelCurrent[idx] = isThisCaCurrent[idx]*I;
+            debugRecording[idx] = gatingTotal;
 
             readIndex = ((writeIndex[preSynapticNeuron] - inputDelay[idx]) % maxDelayInt + maxDelayInt) % maxDelayInt;
             //readIndex = (writeIndex[preSynapticNeuron]-inputDelay[idx])%maxDelayInt;
@@ -270,16 +276,19 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
         //Solve neurons
         for (size_t idx=0;idx<nNeurons;idx++){
             voltages[idx] -= timeStep*(netCurrent[idx]+biasCurrents[idx]); //+bias overwrite list 
-            calciumVals[idx] += timeStep*(-alpha*netCaCurrent[idx] + (-calciumVals[idx] + CaEquilibriumVal[idx])*CaRemovalRate[idx]);
+            calciumVals[idx] += timeStep*(-alpha*netCaCurrent[idx] +
+            (-calciumVals[idx] + CaEquilibriumVal[idx])*CaRemovalRate[idx]);
         }
 
         //Solve spikers
         constexpr float vThreshold = 0.0f;
         for (size_t idx=0;idx<nSpikers;idx++){
             //29/7 continue implenting spikers 
-            spikeBuffer[idx*spikeBufferNeuronStride + writeIndex[idx]] = (int) (voltages[idx]>vThreshold); //think L and R values for later 
+            float r = uniformFloatDist(gen);
+            bool randomOutput = r<spikerProbability[idx];
+            bool spikeOutput = spikerNeuronScale[idx] * (float)((voltages[idx]>vThreshold));
+            spikeBuffer[idx*spikeBufferNeuronStride + writeIndex[idx]] = randomOutput || spikeOutput; //think L and R values for later 
             writeIndex[idx] = (writeIndex[idx]+1)%maxDelayInt;
-
         }
 
         //maybe add a guard for the case where there is only one sim iter, or deal with that on the python side
