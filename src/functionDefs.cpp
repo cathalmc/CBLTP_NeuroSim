@@ -292,37 +292,36 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
         }
 
         //maybe add a guard for the case where there is only one sim iter, or deal with that on the python side
-        if (timeInd%samplingInterval == 0){
-            for (auto item : recordingInfo) {
-                //Warning: AI generated 
-                py::handle key = item.first;
+        if (timeInd % samplingInterval == 0) {
+            //Warning: AI generated
+            for (auto& [keyHandle, recObj] : recordingInfo) {
+                py::handle key = keyHandle;
 
-                auto simBuf = systemInfo[key].cast<py::array_t<float>>().request();
-                auto recBuf = recordingInfo[key].cast<py::array_t<float>>().request();
+                auto simArr = systemInfo[key].cast<py::array_t<float, py::array::c_style | py::array::forcecast>>();
+                auto recArr = recordingInfo[key].cast<py::array_t<float, py::array::c_style | py::array::forcecast>>();
 
-                auto recArray = py::cast<py::array_t<float>>(recordingInfo[key]);
-                auto mut = recArray.mutable_unchecked<2>();
-                
-                auto simArray = systemInfo[key].cast<py::array_t<float>>();
+                auto simReq = simArr.request();
+                auto recReq = recArr.request();
 
-                if (recBuf.ndim != simBuf.ndim + 1)
+                if (recReq.ndim != simReq.ndim + 1)
                     throw std::runtime_error("Array dimension mismatch");
 
-                // Ensure all inner dimensions match
-                for (size_t i = 0; i < simBuf.ndim; ++i) {
-                    if (recBuf.shape[i + 1] != simBuf.shape[i])
+                for (size_t i = 0; i < simReq.ndim; ++i) {
+                    if (recReq.shape[i + 1] != simReq.shape[i])
                         throw std::runtime_error("Shape mismatch between simDict and rDict");
                 }
 
-                std::memcpy(recArray.mutable_data(sampleInd), simArray.data(), simArray.size() * sizeof(float));
+                size_t innerSize = 1;
+                for (size_t i = 0; i < simReq.ndim; ++i)
+                    innerSize *= static_cast<size_t>(simReq.shape[i]);
 
-                // for (size_t i = 0; i < simArray.shape(0); ++i) {
-                //     mut(sampleInd, i) = simArray(i);
-                // }
+                size_t offsetElems = static_cast<size_t>(sampleInd) * innerSize;
+                float* recPtr = static_cast<float*>(recReq.ptr);
+                float* simPtr = static_cast<float*>(simReq.ptr);
 
+                std::memcpy(recPtr + offsetElems, simPtr, innerSize * sizeof(float));
             }
             sampleInd++;
-            
         }
         
     }

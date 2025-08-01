@@ -327,6 +327,7 @@ def genNMDA(TS,baseConductance,conductanceGain = 10):
 
 def genGABA(TS,baseConductance,conductanceGain):
     GABA = genAMPA(TS,baseConductance,conductanceGain)
+    GABA["name"] = "GABA"
     GABA["Erev"] = -80
     return GABA
 
