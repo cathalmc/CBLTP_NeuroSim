@@ -9,7 +9,7 @@ PYBIND11_MODULE(cathalTest, m) {
     m.def("testFunc",&testFunc,"run my lil test function",
     "testIntVal"_a,"testNParr"_a);
     m.def("solveNeuralSystem",&solveNeuralSystem,"test accepting dictionaries",
-    "myDict"_a,"recordingInfo"_a, "timeStep"_a,"nIterations"_a,"samplingInterval"_a);
+    "myDict"_a,"recordingInfo"_a,"spikeOverwriteDict"_a, "timeStep"_a,"nIterations"_a,"samplingInterval"_a);
 }
 
 inline float sigmoid(float x, float xh, float xk,float minOp){
@@ -36,7 +36,7 @@ inline float calcWeightChange(float p, float Ca, float rate, float gammaP, float
 }
 
 
-py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo, 
+py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo, py::dict spikeOverwriteDict,
                             float timeStep,int nIterations,int samplingInterval) {
     //systemInfo is a dict of numpy arrays, we need to extract these arrays and process them in place
     std::random_device rd;  // seed
@@ -168,6 +168,10 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
     auto ErevBuffer = systemInfo["Erev"].cast<py::array_t<float>>().request();
     float *Erevs = (float *) ErevBuffer.ptr;
 
+    //Stimulation data 
+    std::vector<float> biasCurrentOverwriteVector(nNeurons, 0.0f);
+    std::vector<float> spikeInputOverwriteVector(nChannels, 0.0f);
+    
 
     float gatingTotal;
     //assign temporary variables for readability
@@ -183,6 +187,8 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
     // std::for_each(executionPolicy, indices.begin(), indices.end(), [&](int connInd)  {
 
     // });
+
+
     auto start = std::chrono::high_resolution_clock::now();
     for (size_t timeInd=0;timeInd<nIterations;timeInd++){
         for (size_t idx=0;idx<nNeurons;idx++){
@@ -190,6 +196,8 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
             netCaCurrent[idx] = 0.0;
         }
         //Spike overwrite code needs to be implemented here 
+        std::fill(biasCurrentOverwriteVector.begin(), spikeInputOverwriteVector.end(), 0.0f);
+        std::fill(spikeInputOverwriteVector.begin(), spikeInputOverwriteVector.end(), 0.0f);
         
         //Solve Channels 
         for (int idx=0;idx<nChannels;idx++){

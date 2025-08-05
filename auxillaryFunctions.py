@@ -428,6 +428,7 @@ def genSimData(neuronDict,spikerDict,synapseDict,TS):
     for synapseGroupName,synapseGroupData in synapseDict.items():
         connectionToChannelMap[synapseGroupName] = {}
         for connInd,connection in enumerate(synapseGroupData):
+            connectionToChannelMap[synapseGroupName][connInd] = simulationData["nChannels"]
             preLocalIndex,postLocalIndex = connection["pre"],connection["post"]
             preName,postName = connection["preName"],connection["postName"]
             segmentIndex = connection["segmentIndex"]
@@ -439,7 +440,7 @@ def genSimData(neuronDict,spikerDict,synapseDict,TS):
             maxDelayInt = max(delayInt,maxDelayInt)
             assert 0<=preSynapticSpikerIndex<nSpikers and 0<=postSynapticSegmentIndex<nNeurons, f"edge out of range {preSynapticSpikerIndex},{postSynapticSegmentIndex}"
             addSynapseToSystem(preSynapticSpikerIndex,postSynapticSegmentIndex,synapseData,delayInt,simulationData)
-            connectionToChannelMap[synapseGroupName][connInd] = simulationData["nChannels"]
+            
 
 
     #Diffusive connections
