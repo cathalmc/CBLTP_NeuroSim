@@ -198,6 +198,9 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo, py::dic
         //Spike overwrite code needs to be implemented here 
         std::fill(biasCurrentOverwriteVector.begin(), spikeInputOverwriteVector.end(), 0.0f);
         std::fill(spikeInputOverwriteVector.begin(), spikeInputOverwriteVector.end(), 0.0f);
+
+        //Spike overwrite:
+        //Create spikeStimTimes,spikeStimNeurons vectors, and use a while loop with those
         
         //Solve Channels 
         for (int idx=0;idx<nChannels;idx++){

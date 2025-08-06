@@ -179,22 +179,48 @@ def solveSpikers(ac):
 
 
 
+def getSpikeStimArrays(stimInfoSpikes):
+        spikeStimTimes = []
+        spikeStimNeurons = []
+        for key,val in stimInfoSpikes.items():
+            for chan in val:
+                spikeStimTimes.append(key)
+                spikeStimNeurons.append(chan)
+        spikeStimTimes,spikeStimNeurons=np.array(spikeStimTimes), np.array(spikeStimNeurons)
+        spikeStimSortedInds = np.argsort(spikeStimTimes)
+        spikeStimTimes,spikeStimNeurons = spikeStimTimes[spikeStimSortedInds],spikeStimNeurons[spikeStimSortedInds]
+        return spikeStimTimes,spikeStimNeurons
+
 def solveSystemStandard(ac,TS,runTime,stimInfoSpikes={},stimInfoCurrents= {},
                         recordingKeys = ["voltages","calciumVals","netCurrent","current","spikeBuffer"]):
     nIterations = int(runTime/TS)
+    ##Spike stim
+    spikeStimTimes,spikeStimNeurons = getSpikeStimArrays(stimInfoSpikes)
+    maxSpikeStimInd = len(spikeStimTimes)    
+    print(maxSpikeStimInd)
+    spikeStimArrayIter = 0
+
     data = {key:[] for key in recordingKeys}
     tv = np.linspace(0,runTime,nIterations)
     nNeurons = ac["nNeurons"]
     nChannels = ac["nChannels"]
+    
     for iteration,t in enumerate(tv):
         #calculate currents
         ac["netCurrent"] = np.zeros([nNeurons])
         ac["netCaCurrent"] = np.zeros([nNeurons])
         spikeOverwriteList = np.zeros(nChannels)
         biasOverWriteList = np.zeros(nNeurons)
-        if iteration in stimInfoSpikes.keys():
-            for syn in stimInfoSpikes[iteration]:
-                spikeOverwriteList[syn] = 1
+        # if iteration in stimInfoSpikes.keys():
+        #     for syn in stimInfoSpikes[iteration]:
+        #         spikeOverwriteList[syn] = 1
+
+        while spikeStimArrayIter<maxSpikeStimInd and iteration == spikeStimTimes[spikeStimArrayIter]:
+            syn = spikeStimNeurons[spikeStimArrayIter]
+            spikeOverwriteList[syn] = 1
+            spikeStimArrayIter +=1
+        assert spikeStimArrayIter<=len(spikeStimTimes), f"Spike stim array iter {spikeStimArrayIter} out of range {len(spikeStimTimes)} at iteration {iteration}"
+        
                 
         if iteration in stimInfoCurrents.keys():
             for neur,val in stimInfoCurrents[iteration].items():
