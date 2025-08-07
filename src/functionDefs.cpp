@@ -9,7 +9,7 @@ PYBIND11_MODULE(cathalTest, m) {
     m.def("testFunc",&testFunc,"run my lil test function",
     "testIntVal"_a,"testNParr"_a);
     m.def("solveNeuralSystem",&solveNeuralSystem,"test accepting dictionaries",
-    "myDict"_a,"recordingInfo"_a,"spikeOverwriteDict"_a, "timeStep"_a,"nIterations"_a,"samplingInterval"_a);
+    "myDict"_a,"recordingInfo"_a, "timeStep"_a,"nIterations"_a,"samplingInterval"_a);
 }
 
 inline float sigmoid(float x, float xh, float xk,float minOp){
@@ -36,7 +36,7 @@ inline float calcWeightChange(float p, float Ca, float rate, float gammaP, float
 }
 
 
-py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo, py::dict spikeOverwriteDict,
+py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
                             float timeStep,int nIterations,int samplingInterval) {
     //systemInfo is a dict of numpy arrays, we need to extract these arrays and process them in place
     std::random_device rd;  // seed
@@ -171,12 +171,18 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo, py::dic
     //Stimulation data 
     std::vector<float> biasCurrentOverwriteVector(nNeurons, 0.0f);
     std::vector<float> spikeInputOverwriteVector(nChannels, 0.0f);
-    
+    auto spikeStimTimesBuffer = systemInfo["spikeStimTimes"].cast<py::array_t<int>>().request();
+    int *spikeStimTimes = (int*)(spikeStimTimesBuffer.ptr);
+    auto spikeStimNeuronsBuffer = systemInfo["spikeStimNeurons"].cast<py::array_t<int>>().request();
+    int *spikeStimNeurons = (int*)(spikeStimNeuronsBuffer.ptr);
+    size_t maxSpikeStimInd = spikeStimTimesBuffer.shape[0];
+    size_t spikeStimArrayIter = 0; //used to iterate through the spike stimulation arrays
+    //py::print("maxSpikeStimInd:", maxSpikeStimInd);
 
     float gatingTotal;
     //assign temporary variables for readability
     float I,V,Ca,xs,xhs,xks,xts0,xts1,xths,xtks,Erev,g,gateVar,perceivedSpike;
-    int preSynapticNeuron,postSynapticNeuron,readIndex;
+    size_t preSynapticNeuron,postSynapticNeuron,readIndex;
 
     size_t sampleInd = 0;
     
@@ -196,11 +202,17 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo, py::dic
             netCaCurrent[idx] = 0.0;
         }
         //Spike overwrite code needs to be implemented here 
-        std::fill(biasCurrentOverwriteVector.begin(), spikeInputOverwriteVector.end(), 0.0f);
+        std::fill(biasCurrentOverwriteVector.begin(), biasCurrentOverwriteVector.end(), 0.0f);
         std::fill(spikeInputOverwriteVector.begin(), spikeInputOverwriteVector.end(), 0.0f);
 
-        //Spike overwrite:
-        //Create spikeStimTimes,spikeStimNeurons vectors, and use a while loop with those
+        // Spike overwrite:
+        // Create spikeStimTimes,spikeStimNeurons vectors, and use a while loop with those
+        while (spikeStimArrayIter<maxSpikeStimInd && timeInd == spikeStimTimes[spikeStimArrayIter])
+        {
+            int syn = spikeStimNeurons[spikeStimArrayIter];
+            spikeInputOverwriteVector[syn] = 1.0f;
+            spikeStimArrayIter++;
+        }
         
         //Solve Channels 
         for (int idx=0;idx<nChannels;idx++){
@@ -230,7 +242,7 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo, py::dic
             readIndex = ((writeIndex[preSynapticNeuron] - inputDelay[idx]) % maxDelayInt + maxDelayInt) % maxDelayInt;
             //readIndex = (writeIndex[preSynapticNeuron]-inputDelay[idx])%maxDelayInt;
             perceivedSpike = (float)spikeBuffer[preSynapticNeuron*spikeBufferNeuronStride+readIndex]; //shit its a flattened 2d array, need to deal with the awkward indexing 
-            //perceivedSpike = max(perceivedSpike,spikeOverwriteList[i]) //stimulateion 
+            perceivedSpike = std::max(perceivedSpike,spikeInputOverwriteVector[idx]); //stimulateion 
 
             float dp = calcWeightChange(efficacy[idx],Ca,rate[idx],gammaP[idx],gammaD[idx],thetaP[idx],thetaD[idx]);
             efficacy[idx] +=timeStep*dp;

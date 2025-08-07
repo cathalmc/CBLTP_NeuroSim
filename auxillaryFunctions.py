@@ -179,14 +179,14 @@ def solveSpikers(ac):
 
 
 
-def getSpikeStimArrays(stimInfoSpikes):
+def genSpikeStimArrays(stimInfoSpikes):
         spikeStimTimes = []
         spikeStimNeurons = []
         for key,val in stimInfoSpikes.items():
             for chan in val:
                 spikeStimTimes.append(key)
                 spikeStimNeurons.append(chan)
-        spikeStimTimes,spikeStimNeurons=np.array(spikeStimTimes), np.array(spikeStimNeurons)
+        spikeStimTimes,spikeStimNeurons=np.array(spikeStimTimes,dtype=np.int32), np.array(spikeStimNeurons,dtype=np.int32)
         spikeStimSortedInds = np.argsort(spikeStimTimes)
         spikeStimTimes,spikeStimNeurons = spikeStimTimes[spikeStimSortedInds],spikeStimNeurons[spikeStimSortedInds]
         return spikeStimTimes,spikeStimNeurons
@@ -195,11 +195,10 @@ def solveSystemStandard(ac,TS,runTime,stimInfoSpikes={},stimInfoCurrents= {},
                         recordingKeys = ["voltages","calciumVals","netCurrent","current","spikeBuffer"]):
     nIterations = int(runTime/TS)
     ##Spike stim
-    spikeStimTimes,spikeStimNeurons = getSpikeStimArrays(stimInfoSpikes)
+    spikeStimTimes,spikeStimNeurons = genSpikeStimArrays(stimInfoSpikes)
     maxSpikeStimInd = len(spikeStimTimes)    
-    print(maxSpikeStimInd)
     spikeStimArrayIter = 0
-
+    
     data = {key:[] for key in recordingKeys}
     tv = np.linspace(0,runTime,nIterations)
     nNeurons = ac["nNeurons"]
@@ -219,7 +218,7 @@ def solveSystemStandard(ac,TS,runTime,stimInfoSpikes={},stimInfoCurrents= {},
             syn = spikeStimNeurons[spikeStimArrayIter]
             spikeOverwriteList[syn] = 1
             spikeStimArrayIter +=1
-        assert spikeStimArrayIter<=len(spikeStimTimes), f"Spike stim array iter {spikeStimArrayIter} out of range {len(spikeStimTimes)} at iteration {iteration}"
+        #assert spikeStimArrayIter<=len(spikeStimTimes), f"Spike stim array iter {spikeStimArrayIter} out of range {len(spikeStimTimes)} at iteration {iteration}"
         
                 
         if iteration in stimInfoCurrents.keys():
