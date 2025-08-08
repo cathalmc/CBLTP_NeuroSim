@@ -169,7 +169,7 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
     float *Erevs = (float *) ErevBuffer.ptr;
 
     //Stimulation data 
-    std::vector<float> biasCurrentOverwriteVector(nNeurons, 0.0f);
+    // Spike stimulation
     std::vector<float> spikeInputOverwriteVector(nChannels, 0.0f);
     auto spikeStimTimesBuffer = systemInfo["spikeStimTimes"].cast<py::array_t<int>>().request();
     int *spikeStimTimes = (int*)(spikeStimTimesBuffer.ptr);
@@ -177,7 +177,19 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
     int *spikeStimNeurons = (int*)(spikeStimNeuronsBuffer.ptr);
     size_t maxSpikeStimInd = spikeStimTimesBuffer.shape[0];
     size_t spikeStimArrayIter = 0; //used to iterate through the spike stimulation arrays
-    //py::print("maxSpikeStimInd:", maxSpikeStimInd);
+    
+    //Bias current stimulation
+    std::vector<float> biasCurrentOverwriteVector(nNeurons, 0.0f);
+    //have biasStimTimes, biasStimSegments biasStimValues
+    auto biasStimTimesBuffer = systemInfo["biasStimTimes"].cast<py::array_t<int>>().request();
+    int *biasStimTimes = (int*)(biasStimTimesBuffer.ptr);
+    auto biasStimSegmentsBuffer = systemInfo["biasStimSegments"].cast<py::array_t<int>>().request();
+    int *biasStimSegments = (int*)(biasStimSegmentsBuffer.ptr);
+    auto biasStimValuesBuffer = systemInfo["biasStimValues"].cast<py::array_t<float>>().request();
+    float *biasStimValues = (float*)(biasStimValuesBuffer.ptr);
+    size_t maxBiasStimInd = biasStimTimesBuffer.shape[0];
+    size_t biasStimArrayIter = 0; //used to iterate through the bias stimulation arrays
+
 
     float gatingTotal;
     //assign temporary variables for readability
@@ -202,9 +214,7 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
             netCaCurrent[idx] = 0.0;
         }
         //Spike overwrite code needs to be implemented here 
-        std::fill(biasCurrentOverwriteVector.begin(), biasCurrentOverwriteVector.end(), 0.0f);
         std::fill(spikeInputOverwriteVector.begin(), spikeInputOverwriteVector.end(), 0.0f);
-
         // Spike overwrite:
         // Create spikeStimTimes,spikeStimNeurons vectors, and use a while loop with those
         while (spikeStimArrayIter<maxSpikeStimInd && timeInd == spikeStimTimes[spikeStimArrayIter])
@@ -212,6 +222,16 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
             int syn = spikeStimNeurons[spikeStimArrayIter];
             spikeInputOverwriteVector[syn] = 1.0f;
             spikeStimArrayIter++;
+        }
+
+        //Bias current overwrite 
+        std::fill(biasCurrentOverwriteVector.begin(), biasCurrentOverwriteVector.end(), 0.0f);
+        while (biasStimArrayIter<maxBiasStimInd && timeInd == biasStimTimes[biasStimArrayIter])
+        {
+            int neuron = biasStimSegments[biasStimArrayIter];
+            float biasVal = biasStimValues[biasStimArrayIter];
+            biasCurrentOverwriteVector[neuron] = biasVal;
+            biasStimArrayIter++;
         }
         
         //Solve Channels 
@@ -298,7 +318,7 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
             
         //Solve neurons
         for (size_t idx=0;idx<nNeurons;idx++){
-            voltages[idx] -= timeStep*(netCurrent[idx]+biasCurrents[idx]); //+bias overwrite list 
+            voltages[idx] -= timeStep*(netCurrent[idx]+biasCurrents[idx] +biasCurrentOverwriteVector[idx] ); //+bias overwrite list 
             calciumVals[idx] += timeStep*(-alpha*netCaCurrent[idx] +
             (-calciumVals[idx] + CaEquilibriumVal[idx])*CaRemovalRate[idx]);
         }

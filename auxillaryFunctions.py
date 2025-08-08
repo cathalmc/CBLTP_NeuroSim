@@ -191,6 +191,24 @@ def genSpikeStimArrays(stimInfoSpikes):
         spikeStimTimes,spikeStimNeurons = spikeStimTimes[spikeStimSortedInds],spikeStimNeurons[spikeStimSortedInds]
         return spikeStimTimes,spikeStimNeurons
 
+
+def genBiasStimArrays(stimInfoBiasCurrent):
+    biasStimTimes,biasStimSegments,biasStimValues = [],[],[]
+    for key,val in stimInfoBiasCurrent.items():
+        for seg,val in zip(val["segment"],val["value"]):
+            biasStimTimes.append(key)
+            biasStimSegments.append(seg)
+            biasStimValues.append(val)
+
+    biasStimTimes = np.array(biasStimTimes,dtype=np.int32)
+    biasStimSegments = np.array(biasStimSegments,dtype=np.int32)
+    biasStimValues = np.array(biasStimValues,dtype=np.float32)
+    biasStimSortingInds = np.argsort(biasStimTimes)
+    biasStimTimes = biasStimTimes[biasStimSortingInds]
+    biasStimSegments = biasStimSegments[biasStimSortingInds]
+    biasStimValues = biasStimValues[biasStimSortingInds]
+    return biasStimTimes,biasStimSegments,biasStimValues
+
 def solveSystemStandard(ac,TS,runTime,stimInfoSpikes={},stimInfoCurrents= {},
                         recordingKeys = ["voltages","calciumVals","netCurrent","current","spikeBuffer"]):
     nIterations = int(runTime/TS)
@@ -198,6 +216,11 @@ def solveSystemStandard(ac,TS,runTime,stimInfoSpikes={},stimInfoCurrents= {},
     spikeStimTimes,spikeStimNeurons = genSpikeStimArrays(stimInfoSpikes)
     maxSpikeStimInd = len(spikeStimTimes)    
     spikeStimArrayIter = 0
+
+    ##intracellular bias current stimulation
+    biasStimTimes,biasStimSegments,biasStimValues = genBiasStimArrays(stimInfoCurrents)
+    maxBiasStimInd = len(biasStimTimes)
+    biasStimArrayIter = 0
     
     data = {key:[] for key in recordingKeys}
     tv = np.linspace(0,runTime,nIterations)
@@ -210,20 +233,17 @@ def solveSystemStandard(ac,TS,runTime,stimInfoSpikes={},stimInfoCurrents= {},
         ac["netCaCurrent"] = np.zeros([nNeurons])
         spikeOverwriteList = np.zeros(nChannels)
         biasOverWriteList = np.zeros(nNeurons)
-        # if iteration in stimInfoSpikes.keys():
-        #     for syn in stimInfoSpikes[iteration]:
-        #         spikeOverwriteList[syn] = 1
 
         while spikeStimArrayIter<maxSpikeStimInd and iteration == spikeStimTimes[spikeStimArrayIter]:
             syn = spikeStimNeurons[spikeStimArrayIter]
             spikeOverwriteList[syn] = 1
             spikeStimArrayIter +=1
-        #assert spikeStimArrayIter<=len(spikeStimTimes), f"Spike stim array iter {spikeStimArrayIter} out of range {len(spikeStimTimes)} at iteration {iteration}"
-        
-                
-        if iteration in stimInfoCurrents.keys():
-            for neur,val in stimInfoCurrents[iteration].items():
-                biasOverWriteList[neur] = val
+
+        while biasStimArrayIter<maxBiasStimInd and iteration == biasStimTimes[biasStimArrayIter]:
+            seg = biasStimSegments[biasStimArrayIter]
+            val = biasStimValues[biasStimArrayIter]
+            biasOverWriteList[seg] = val
+            biasStimArrayIter +=1
 
         #update the gates
         solveChannels(ac,spikeOverwriteList,TS)
@@ -555,3 +575,28 @@ def createSynapses(prePopulation,postPopulation,nSynapses,baseConductance,delay,
             synDat = {"pre":e0,"post":e1,"synapse":deepcopy(synapseInfo),"delay":delay,"preName":preName,"postName":postName,"segmentIndex":segmentIndex}
             synapseData.append(synDat)
     return synapseData
+
+
+def stimSynapse(stimInfoSpikes,synapsesToStim,startTime,stopTime,TS):
+    #another option is to have a stim value as well. We assume here stim value is 1, but
+    #if we could set it to 0 we could switch off ion channels
+    st0,st1 = int(startTime/TS),int(stopTime/TS)
+    times = [i for i in range(st0,st1)]
+    for t in times:
+        for syn in synapsesToStim:
+            if t not in stimInfoSpikes:
+                stimInfoSpikes[t] = set([syn])
+            stimInfoSpikes[t].add(syn)
+                
+
+def stimBiasCurrent(stimInfoBiasCurrent,segmentsToStim,currentValue, startTime,stopTime,TS):
+    #another option is to have a stim value as well. We assume here stim value is 1, but
+    #if we could set it to 0 we could switch off ion channels
+    st0,st1 = int(startTime/TS),int(stopTime/TS)
+    times = [i for i in range(st0,st1)]
+    for t in times:
+        for seg in segmentsToStim:
+            if t not in stimInfoBiasCurrent:
+                stimInfoBiasCurrent[t] = {"segment":[],"value":[]}
+            stimInfoBiasCurrent[t]["segment"].append(seg)
+            stimInfoBiasCurrent[t]["value"].append(currentValue)
