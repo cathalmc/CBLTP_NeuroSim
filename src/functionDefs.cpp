@@ -1,9 +1,9 @@
 #include "functionDefs.hpp"
-//#include <execution>
+#include <execution>
 #include <chrono>
 #include <random>
-// #include <algorithm>
-// #include <functional>
+#include <algorithm>
+#include <functional>
 
 PYBIND11_MODULE(cathalTest, m) {
     m.def("testFunc",&testFunc,"run my lil test function",
@@ -205,7 +205,7 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
     // std::for_each(executionPolicy, indices.begin(), indices.end(), [&](int connInd)  {
 
     // });
-
+    auto executionPolicy = std::execution::par_unseq;
 
     auto start = std::chrono::high_resolution_clock::now();
     for (size_t timeInd=0;timeInd<nIterations;timeInd++){
@@ -235,8 +235,10 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
         }
         
         //Solve Channels 
-        for (int idx=0;idx<nChannels;idx++){
+        std::iota(indices.begin(), indices.end(), 0); // Fill it with consecutive numbers
+        std::for_each(executionPolicy, indices.begin(), indices.end(), [&](int connInd)  {
             //temporary variables
+            int idx = connInd;
             postSynapticNeuron = postNeuron[idx];
             V = voltages[postSynapticNeuron];
             Ca = calciumVals[postSynapticNeuron];
@@ -285,8 +287,61 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
 
 
             }
+        });
 
-        }
+        // for (int idx=0;idx<nChannels;idx++){
+        //     //temporary variables
+        //     postSynapticNeuron = postNeuron[idx];
+        //     V = voltages[postSynapticNeuron];
+        //     Ca = calciumVals[postSynapticNeuron];
+        //     preSynapticNeuron = channelPreSpiker[idx];
+        //     //spikes = spikeVals[postSynapticNeuron];
+
+        //     g = conductance[idx] + conductanceGain[idx]*efficacy[idx];
+
+        //     //multiply gating variables to get net gate opening
+        //     gatingTotal = 1.0f;
+        //     for (size_t idy=0;idy<nGatingVariables;idy++){
+        //         float expnt = exponent[idx*chanStride + idy];
+        //         gatingTotal *= pow(x[idx*chanStride + idy],expnt);
+        //     }
+
+        //     I = g*gatingTotal*(V-Erevs[idx]);// g*gatingTotal*(V-Erev);
+        //     // netCurrent[postSynapticNeuron] += I;
+        //     // netCaCurrent[postSynapticNeuron] += isThisCaCurrent[idx]*I;
+        //     channelCurrent[idx] = I; //we accumulate later
+        //     CaChannelCurrent[idx] = isThisCaCurrent[idx]*I;
+        //     debugRecording[idx] = gatingTotal;
+
+        //     readIndex = ((writeIndex[preSynapticNeuron] - inputDelay[idx]) % maxDelayInt + maxDelayInt) % maxDelayInt;
+        //     //readIndex = (writeIndex[preSynapticNeuron]-inputDelay[idx])%maxDelayInt;
+        //     perceivedSpike = (float)spikeBuffer[preSynapticNeuron*spikeBufferNeuronStride+readIndex]; //shit its a flattened 2d array, need to deal with the awkward indexing 
+        //     perceivedSpike = std::max(perceivedSpike,spikeInputOverwriteVector[idx]); //stimulateion 
+
+        //     float dp = calcWeightChange(efficacy[idx],Ca,rate[idx],gammaP[idx],gammaD[idx],thetaP[idx],thetaD[idx]);
+        //     efficacy[idx] +=timeStep*dp;
+
+        //     for (size_t idy=0;idy<nGatingVariables;idy++) {
+        //         if (idy<2) gateVar = V;
+        //         else if (idy==2) gateVar = Ca; //Ca
+        //         else gateVar = perceivedSpike; //Spikes
+
+        //         float xp = x[idx*chanStride + idy];
+        //         float vHalfp = vHalf[idx*chanStride + idy];
+        //         float vKip = vKi[idx*chanStride + idy];
+        //         float tau0p = tau0[idx*chanStride + idy];
+        //         float tau1p = tau1[idx*chanStride + idy];
+        //         float thp = th[idx*chanStride + idy];
+        //         float tkInvp = tkInv[idx*chanStride + idy];
+        //         float minOp = minOpenness[idx*chanStride + idy];
+
+        //         x[idx*chanStride + idy] = solveGate(xp,gateVar,timeStep,vHalfp,vKip,tau0p,tau1p,thp,tkInvp,minOp);
+
+
+        //     }
+
+        // }
+        
         //accumulate in a separate loop to allow for parallelizing the above loop
         for (int idx=0;idx<nChannels;idx++){
             postSynapticNeuron = postNeuron[idx];
