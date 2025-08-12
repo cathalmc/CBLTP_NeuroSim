@@ -499,7 +499,7 @@ def genSimData(neuronDict,spikerDict,synapseDict,TS):
                 addDiffusiveConnection(simulationData,preSegmentIndex,postSegmentIndex,diffusionRate)
 
     simulationData["maxDelayInt"] = maxDelayInt
-    simulationData["voltages"] = -75*np.ones(nNeurons,dtype = np.float32) + 1*np.arange(0,nNeurons,dtype=np.float32)
+    simulationData["voltages"] = -75*np.ones(nNeurons,dtype = np.float32) + 1*np.linspace(-10,20,nNeurons, dtype=np.float32)
     simulationData["calciumVals"] = np.zeros(nNeurons,dtype = np.float32)
     simulationData["spikeVals"] = np.zeros(nSpikers,dtype = np.float32)
     simulationData["netCurrent"] = np.zeros(nNeurons,dtype = np.float32)

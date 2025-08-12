@@ -191,10 +191,10 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
     size_t biasStimArrayIter = 0; //used to iterate through the bias stimulation arrays
 
 
-    float gatingTotal;
+    //float gatingTotal;
     //assign temporary variables for readability
-    float I,V,Ca,xs,xhs,xks,xts0,xts1,xths,xtks,Erev,g,gateVar,perceivedSpike;
-    size_t preSynapticNeuron,postSynapticNeuron,readIndex;
+    //float I,V,Ca,xs,xhs,xks,xts0,xts1,xths,xtks,Erev,g,gateVar,perceivedSpike;
+    //size_t preSynapticNeuron,postSynapticNeuron,readIndex;
 
     size_t sampleInd = 0;
     
@@ -205,10 +205,12 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
     // std::for_each(executionPolicy, indices.begin(), indices.end(), [&](int connInd)  {
 
     // });
-    auto executionPolicy = std::execution::par_unseq;
-
+    auto executionPolicy = std::execution::par_unseq; //par_unseq
+    double initializationT,channelT,accumulateT,diffusiveT, spikerT,neuronT, recordingT;
+    initializationT = 0.0, channelT = 0.0, accumulateT = 0.0, diffusiveT = 0.0, spikerT = 0.0, neuronT = 0.0, recordingT = 0.0;
     auto start = std::chrono::high_resolution_clock::now();
     for (size_t timeInd=0;timeInd<nIterations;timeInd++){
+        auto innerLoopStart = std::chrono::high_resolution_clock::now();
         for (size_t idx=0;idx<nNeurons;idx++){
             netCurrent[idx] = 0.0;
             netCaCurrent[idx] = 0.0;
@@ -233,42 +235,47 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
             biasCurrentOverwriteVector[neuron] = biasVal;
             biasStimArrayIter++;
         }
+        auto initializationEnd = std::chrono::high_resolution_clock::now();
+        initializationT += std::chrono::duration<double>(initializationEnd - innerLoopStart).count();
         
         //Solve Channels 
         std::iota(indices.begin(), indices.end(), 0); // Fill it with consecutive numbers
         std::for_each(executionPolicy, indices.begin(), indices.end(), [&](int connInd)  {
             //temporary variables
+
+
             int idx = connInd;
-            postSynapticNeuron = postNeuron[idx];
-            V = voltages[postSynapticNeuron];
-            Ca = calciumVals[postSynapticNeuron];
-            preSynapticNeuron = channelPreSpiker[idx];
+            int postSynapticNeuron = postNeuron[idx];
+            int preSynapticNeuron = channelPreSpiker[idx];
+            float V = voltages[postSynapticNeuron];
+            float Ca = calciumVals[postSynapticNeuron];
+            
             //spikes = spikeVals[postSynapticNeuron];
 
-            g = conductance[idx] + conductanceGain[idx]*efficacy[idx];
+            float g = conductance[idx] + conductanceGain[idx]*efficacy[idx];
 
             //multiply gating variables to get net gate opening
-            gatingTotal = 1.0f;
+            float gatingTotal = 1.0f;
             for (size_t idy=0;idy<nGatingVariables;idy++){
                 float expnt = exponent[idx*chanStride + idy];
                 gatingTotal *= pow(x[idx*chanStride + idy],expnt);
             }
 
-            I = g*gatingTotal*(V-Erevs[idx]);// g*gatingTotal*(V-Erev);
+            float I = g*gatingTotal*(V-Erevs[idx]);// g*gatingTotal*(V-Erev);
             // netCurrent[postSynapticNeuron] += I;
             // netCaCurrent[postSynapticNeuron] += isThisCaCurrent[idx]*I;
             channelCurrent[idx] = I; //we accumulate later
             CaChannelCurrent[idx] = isThisCaCurrent[idx]*I;
             debugRecording[idx] = gatingTotal;
 
-            readIndex = ((writeIndex[preSynapticNeuron] - inputDelay[idx]) % maxDelayInt + maxDelayInt) % maxDelayInt;
+            int readIndex = ((writeIndex[preSynapticNeuron] - inputDelay[idx]) % maxDelayInt + maxDelayInt) % maxDelayInt;
             //readIndex = (writeIndex[preSynapticNeuron]-inputDelay[idx])%maxDelayInt;
-            perceivedSpike = (float)spikeBuffer[preSynapticNeuron*spikeBufferNeuronStride+readIndex]; //shit its a flattened 2d array, need to deal with the awkward indexing 
+            float perceivedSpike = (float)spikeBuffer[preSynapticNeuron*spikeBufferNeuronStride+readIndex]; //shit its a flattened 2d array, need to deal with the awkward indexing 
             perceivedSpike = std::max(perceivedSpike,spikeInputOverwriteVector[idx]); //stimulateion 
 
             float dp = calcWeightChange(efficacy[idx],Ca,rate[idx],gammaP[idx],gammaD[idx],thetaP[idx],thetaD[idx]);
             efficacy[idx] +=timeStep*dp;
-
+            float gateVar;
             for (size_t idy=0;idy<nGatingVariables;idy++) {
                 if (idy<2) gateVar = V;
                 else if (idy==2) gateVar = Ca; //Ca
@@ -288,6 +295,133 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
 
             }
         });
+
+        auto channelEnd = std::chrono::high_resolution_clock::now();
+        channelT += std::chrono::duration<double>(channelEnd - initializationEnd).count();
+
+        //accumulate in a separate loop to allow for parallelizing the above loop
+        for (int idx=0;idx<nChannels;idx++){
+            int postSynapticNeuron = postNeuron[idx];
+            float I = channelCurrent[idx];
+            netCurrent[postSynapticNeuron] += I;
+            netCaCurrent[postSynapticNeuron] += isThisCaCurrent[idx]*I;
+        }
+        auto accumulateEnd = std::chrono::high_resolution_clock::now();
+        accumulateT += std::chrono::duration<double>(accumulateEnd - channelEnd).count();
+
+
+        //Solve diffusive connections. could also be parallelized, but its relatively not as big
+        for (size_t idx=0;idx<nDiffusiveConnections;idx++){
+            int preSynapticNeuron = diffPreNeuron[idx];
+            int postSynapticNeuron = diffPostNeuron[idx];
+
+            float Vpost = voltages[postSynapticNeuron];
+            float Capost = calciumVals[postSynapticNeuron];
+            float Vpre = voltages[preSynapticNeuron];
+            float Capre = calciumVals[preSynapticNeuron];
+
+            float I = diffRate[idx]*(Vpost - Vpre);
+            float CaFlow = diffRate[idx]*(Capost - Capre);
+
+            netCurrent[postSynapticNeuron] += I;
+            netCaCurrent[postSynapticNeuron] += CaFlow*I;
+
+            netCurrent[preSynapticNeuron] -= I;
+            netCaCurrent[preSynapticNeuron] -= CaFlow*I;
+
+        }
+        auto diffusiveEnd = std::chrono::high_resolution_clock::now();
+        diffusiveT += std::chrono::duration<double>(diffusiveEnd - accumulateEnd).count();
+            
+        //Solve neurons
+        for (size_t idx=0;idx<nNeurons;idx++){
+            voltages[idx] -= timeStep*(netCurrent[idx]+biasCurrents[idx] +biasCurrentOverwriteVector[idx] ); //+bias overwrite list 
+            calciumVals[idx] += timeStep*(-alpha*netCaCurrent[idx] +
+            (-calciumVals[idx] + CaEquilibriumVal[idx])*CaRemovalRate[idx]);
+        }
+        auto neuronEnd = std::chrono::high_resolution_clock::now();
+        neuronT += std::chrono::duration<double>(neuronEnd - diffusiveEnd).count();
+
+        //Solve spikers
+        constexpr float vThreshold = 0.0f;
+        for (size_t idx=0;idx<nSpikers;idx++){
+            //29/7 continue implenting spikers 
+            float r = uniformFloatDist(gen);
+            bool randomOutput = r<spikerProbability[idx];
+            bool spikeOutput = spikerNeuronScale[idx] * (float)((voltages[idx]>vThreshold));
+            spikeBuffer[idx*spikeBufferNeuronStride + writeIndex[idx]] = randomOutput || spikeOutput; //think L and R values for later 
+            writeIndex[idx] = (writeIndex[idx]+1)%maxDelayInt;
+        }
+        auto spikerEnd = std::chrono::high_resolution_clock::now();
+        spikerT += std::chrono::duration<double>(spikerEnd - neuronEnd).count();
+
+        //maybe add a guard for the case where there is only one sim iter, or deal with that on the python side
+        if (timeInd % samplingInterval == 0) {
+            //Warning: AI generated
+            for (auto& [keyHandle, recObj] : recordingInfo) {
+                py::handle key = keyHandle;
+
+                auto simArr = systemInfo[key].cast<py::array_t<float, py::array::c_style | py::array::forcecast>>();
+                auto recArr = recordingInfo[key].cast<py::array_t<float, py::array::c_style | py::array::forcecast>>();
+
+                auto simReq = simArr.request();
+                auto recReq = recArr.request();
+
+                if (recReq.ndim != simReq.ndim + 1)
+                    throw std::runtime_error("Array dimension mismatch");
+
+                for (size_t i = 0; i < simReq.ndim; ++i) {
+                    if (recReq.shape[i + 1] != simReq.shape[i])
+                        throw std::runtime_error("Shape mismatch between simDict and rDict");
+                }
+
+                size_t innerSize = 1;
+                for (size_t i = 0; i < simReq.ndim; ++i)
+                    innerSize *= static_cast<size_t>(simReq.shape[i]);
+
+                size_t offsetElems = static_cast<size_t>(sampleInd) * innerSize;
+                float* recPtr = static_cast<float*>(recReq.ptr);
+                float* simPtr = static_cast<float*>(simReq.ptr);
+
+                std::memcpy(recPtr + offsetElems, simPtr, innerSize * sizeof(float));
+            }
+            sampleInd++;
+            auto recordingEnd = std::chrono::high_resolution_clock::now();
+            recordingT += std::chrono::duration<double>(recordingEnd - spikerEnd).count();
+        }
+        
+
+        
+    }
+
+   
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed = end - start;
+    py::print("Elapsed time in seconds:", elapsed.count());
+    
+    py::print("Initialization time:", initializationT);
+    py::print("Channel solving time:", channelT);
+    py::print("Accumulation time:", accumulateT);
+    py::print("Diffusive connections time:", diffusiveT);
+    py::print("Neuron solving time:", neuronT);
+    py::print("Spiker solving time:", spikerT);
+    py::print("Recording time:", recordingT);
+    py::print("Total time:", initializationT + channelT + accumulateT + diffusiveT + neuronT + spikerT + recordingT);
+
+    return py::none();
+}
+
+py::object testFunc(py::array_t<int> testIntVal,
+                    py::array_t<double> testNParr) 
+    {
+        int testInt = *testIntVal.data();
+        auto doubArr = (double *) testNParr.request().ptr;
+        doubArr[testInt] = 2.5;
+
+        return py::cast<py::none>(Py_None);
+    }
+
+
 
         // for (int idx=0;idx<nChannels;idx++){
         //     //temporary variables
@@ -341,88 +475,6 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
         //     }
 
         // }
-        
-        //accumulate in a separate loop to allow for parallelizing the above loop
-        for (int idx=0;idx<nChannels;idx++){
-            postSynapticNeuron = postNeuron[idx];
-            I = channelCurrent[idx];
-            netCurrent[postSynapticNeuron] += I;
-            netCaCurrent[postSynapticNeuron] += isThisCaCurrent[idx]*I;
-        }
-
-        //Solve diffusive connections. could also be parallelized, but its relatively not as big
-        for (size_t idx=0;idx<nDiffusiveConnections;idx++){
-            int preSynapticNeuron = diffPreNeuron[idx];
-            int postSynapticNeuron = diffPostNeuron[idx];
-
-            float Vpost = voltages[postSynapticNeuron];
-            float Capost = calciumVals[postSynapticNeuron];
-            float Vpre = voltages[preSynapticNeuron];
-            float Capre = calciumVals[preSynapticNeuron];
-
-            float I = diffRate[idx]*(Vpost - Vpre);
-            float CaFlow = diffRate[idx]*(Capost - Capre);
-
-            netCurrent[postSynapticNeuron] += I;
-            netCaCurrent[postSynapticNeuron] += CaFlow*I;
-
-            netCurrent[preSynapticNeuron] -= I;
-            netCaCurrent[preSynapticNeuron] -= CaFlow*I;
-
-        }
-            
-        //Solve neurons
-        for (size_t idx=0;idx<nNeurons;idx++){
-            voltages[idx] -= timeStep*(netCurrent[idx]+biasCurrents[idx] +biasCurrentOverwriteVector[idx] ); //+bias overwrite list 
-            calciumVals[idx] += timeStep*(-alpha*netCaCurrent[idx] +
-            (-calciumVals[idx] + CaEquilibriumVal[idx])*CaRemovalRate[idx]);
-        }
-
-        //Solve spikers
-        constexpr float vThreshold = 0.0f;
-        for (size_t idx=0;idx<nSpikers;idx++){
-            //29/7 continue implenting spikers 
-            float r = uniformFloatDist(gen);
-            bool randomOutput = r<spikerProbability[idx];
-            bool spikeOutput = spikerNeuronScale[idx] * (float)((voltages[idx]>vThreshold));
-            spikeBuffer[idx*spikeBufferNeuronStride + writeIndex[idx]] = randomOutput || spikeOutput; //think L and R values for later 
-            writeIndex[idx] = (writeIndex[idx]+1)%maxDelayInt;
-        }
-
-        //maybe add a guard for the case where there is only one sim iter, or deal with that on the python side
-        if (timeInd % samplingInterval == 0) {
-            //Warning: AI generated
-            for (auto& [keyHandle, recObj] : recordingInfo) {
-                py::handle key = keyHandle;
-
-                auto simArr = systemInfo[key].cast<py::array_t<float, py::array::c_style | py::array::forcecast>>();
-                auto recArr = recordingInfo[key].cast<py::array_t<float, py::array::c_style | py::array::forcecast>>();
-
-                auto simReq = simArr.request();
-                auto recReq = recArr.request();
-
-                if (recReq.ndim != simReq.ndim + 1)
-                    throw std::runtime_error("Array dimension mismatch");
-
-                for (size_t i = 0; i < simReq.ndim; ++i) {
-                    if (recReq.shape[i + 1] != simReq.shape[i])
-                        throw std::runtime_error("Shape mismatch between simDict and rDict");
-                }
-
-                size_t innerSize = 1;
-                for (size_t i = 0; i < simReq.ndim; ++i)
-                    innerSize *= static_cast<size_t>(simReq.shape[i]);
-
-                size_t offsetElems = static_cast<size_t>(sampleInd) * innerSize;
-                float* recPtr = static_cast<float*>(recReq.ptr);
-                float* simPtr = static_cast<float*>(simReq.ptr);
-
-                std::memcpy(recPtr + offsetElems, simPtr, innerSize * sizeof(float));
-            }
-            sampleInd++;
-        }
-        
-    }
     // auto arr = py::array_t<float>({2, 3});
     // recordingInfo["test"] = arr;
     // auto buf = arr.mutable_unchecked<2>();
@@ -440,20 +492,3 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
     //         size_t length = recBuf.size;
     //         py::print("After:", recordingInfo[key]);
     //     }
-   
-    auto end = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> elapsed = end - start;
-    py::print("Elapsed time in seconds:", elapsed.count());
-
-    return py::none();
-}
-
-py::object testFunc(py::array_t<int> testIntVal,
-                    py::array_t<double> testNParr) 
-    {
-        int testInt = *testIntVal.data();
-        auto doubArr = (double *) testNParr.request().ptr;
-        doubArr[testInt] = 2.5;
-
-        return py::cast<py::none>(Py_None);
-    }
