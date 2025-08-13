@@ -25,14 +25,23 @@ inline float solveGate(float x, float s, float TS, float xh, float xk, float xts
     return (tau*x +TS*xInf)/(tau+TS);
 }
 
-inline float calcWeightChange(float p, float Ca, float rate, float gammaP, float gammaD, float thetaP, float thetaD){
-    float pStar = 0.5;
-    float revP = (1-p);
+// inline float calcWeightChange(float p, float Ca, float rate, float gammaP, float gammaD, float thetaP, float thetaD){
+//     float pStar = 0.5;
+//     float revP = (1-p);
+//     float fp = -p*revP*(pStar-p);
+//     float potentiation = gammaP*revP*(Ca>thetaP);
+//     float depression = -gammaD*p*(thetaD<Ca && Ca<=thetaP);
+//     float Noise = 0;
+//     return rate*fp+potentiation+depression+Noise;
+// }
+inline float calcWeightChange(float p, float Ca, float rate,
+                              float gammaP, float gammaD,
+                              float thetaP, float thetaD){
+    float pStar=0.5f, revP=(1.f-p);
     float fp = -p*revP*(pStar-p);
-    float potentiation = gammaP*revP*(Ca>thetaP);
-    float depression = -gammaD*p*(thetaD<Ca && Ca<=thetaP);
-    float Noise = 0;
-    return rate*fp+potentiation+depression+Noise;
+    float mP = Ca>thetaP;                // 0 or 1
+    float mD = (Ca>thetaD) & (Ca<=thetaP); // 0 or 1 without branch
+    return rate*fp + gammaP*revP*mP - gammaD*p*mD;
 }
 
 
@@ -190,6 +199,8 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
     size_t maxBiasStimInd = biasStimTimesBuffer.shape[0];
     size_t biasStimArrayIter = 0; //used to iterate through the bias stimulation arrays
 
+    auto performanceStatsBuffer = systemInfo["performanceStats"].cast<py::array_t<float>>().request();
+    float *performanceStats = (float *)(performanceStatsBuffer.ptr);
 
     //float gatingTotal;
     //assign temporary variables for readability
@@ -242,8 +253,6 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
         std::iota(indices.begin(), indices.end(), 0); // Fill it with consecutive numbers
         std::for_each(executionPolicy, indices.begin(), indices.end(), [&](int connInd)  {
             //temporary variables
-
-
             int idx = connInd;
             int postSynapticNeuron = postNeuron[idx];
             int preSynapticNeuron = channelPreSpiker[idx];
@@ -294,6 +303,10 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
 
 
             }
+
+            
+
+
         });
 
         auto channelEnd = std::chrono::high_resolution_clock::now();
@@ -399,14 +412,23 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
     std::chrono::duration<double> elapsed = end - start;
     py::print("Elapsed time in seconds:", elapsed.count());
     
-    py::print("Initialization time:", initializationT);
-    py::print("Channel solving time:", channelT);
-    py::print("Accumulation time:", accumulateT);
-    py::print("Diffusive connections time:", diffusiveT);
-    py::print("Neuron solving time:", neuronT);
-    py::print("Spiker solving time:", spikerT);
-    py::print("Recording time:", recordingT);
-    py::print("Total time:", initializationT + channelT + accumulateT + diffusiveT + neuronT + spikerT + recordingT);
+    // py::print("Initialization time:", initializationT);
+    // py::print("Channel solving time:", channelT);
+    // py::print("Accumulation time:", accumulateT);
+    // py::print("Diffusive connections time:", diffusiveT);
+    // py::print("Neuron solving time:", neuronT);
+    // py::print("Spiker solving time:", spikerT);
+    // py::print("Recording time:", recordingT);
+    // py::print("Total time:", initializationT + channelT + accumulateT + diffusiveT + neuronT + spikerT + recordingT);
+
+    performanceStats[0] = initializationT;
+    performanceStats[1] = channelT;
+    performanceStats[2] = accumulateT;
+    performanceStats[3] = diffusiveT;
+    performanceStats[4] = neuronT;
+    performanceStats[5] = spikerT;
+    performanceStats[6] = recordingT;
+    performanceStats[7] = initializationT + channelT + accumulateT + diffusiveT + neuronT + spikerT + recordingT;
 
     return py::none();
 }
