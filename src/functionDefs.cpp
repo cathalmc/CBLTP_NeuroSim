@@ -4,12 +4,25 @@
 #include <random>
 #include <algorithm>
 #include <functional>
+#include <omp.h>
+
+int ompMaxThreads() { return omp_get_max_threads(); }
+
+long long paritySum(long long N){
+    long long s = 0;
+    #pragma omp parallel for reduction(+:s) schedule(static)
+    for(long long i=0;i<N;++i) s += (i & 1);
+    return s;
+}
+
 
 PYBIND11_MODULE(cathalTest, m) {
     m.def("testFunc",&testFunc,"run my lil test function",
     "testIntVal"_a,"testNParr"_a);
     m.def("solveNeuralSystem",&solveNeuralSystem,"test accepting dictionaries",
     "myDict"_a,"recordingInfo"_a, "timeStep"_a,"nIterations"_a,"samplingInterval"_a);
+    m.def("ompMaxThreads", &ompMaxThreads);
+    m.def("paritySum", &paritySum, py::call_guard<py::gil_scoped_release>()); // release GIL
 }
 
 inline float sigmoid(float x, float xh, float xk,float minOp){
@@ -221,7 +234,7 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
     initializationT = 0.0, channelT = 0.0, accumulateT = 0.0, diffusiveT = 0.0, spikerT = 0.0, neuronT = 0.0, recordingT = 0.0;
     auto start = std::chrono::high_resolution_clock::now();
     for (size_t timeInd=0;timeInd<nIterations;timeInd++){
-        auto innerLoopStart = std::chrono::high_resolution_clock::now();
+        auto innerLoopStart = std::chrono::steady_clock::now();
         for (size_t idx=0;idx<nNeurons;idx++){
             netCurrent[idx] = 0.0;
             netCaCurrent[idx] = 0.0;
@@ -246,7 +259,7 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
             biasCurrentOverwriteVector[neuron] = biasVal;
             biasStimArrayIter++;
         }
-        auto initializationEnd = std::chrono::high_resolution_clock::now();
+        auto initializationEnd = std::chrono::steady_clock::now();
         initializationT += std::chrono::duration<double>(initializationEnd - innerLoopStart).count();
         
         //Solve Channels 
@@ -309,7 +322,7 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
 
         });
 
-        auto channelEnd = std::chrono::high_resolution_clock::now();
+        auto channelEnd = std::chrono::steady_clock::now();
         channelT += std::chrono::duration<double>(channelEnd - initializationEnd).count();
 
         //accumulate in a separate loop to allow for parallelizing the above loop
@@ -319,7 +332,7 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
             netCurrent[postSynapticNeuron] += I;
             netCaCurrent[postSynapticNeuron] += isThisCaCurrent[idx]*I;
         }
-        auto accumulateEnd = std::chrono::high_resolution_clock::now();
+        auto accumulateEnd = std::chrono::steady_clock::now();
         accumulateT += std::chrono::duration<double>(accumulateEnd - channelEnd).count();
 
 
@@ -343,7 +356,7 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
             netCaCurrent[preSynapticNeuron] -= CaFlow*I;
 
         }
-        auto diffusiveEnd = std::chrono::high_resolution_clock::now();
+        auto diffusiveEnd = std::chrono::steady_clock::now();
         diffusiveT += std::chrono::duration<double>(diffusiveEnd - accumulateEnd).count();
             
         //Solve neurons
@@ -352,7 +365,7 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
             calciumVals[idx] += timeStep*(-alpha*netCaCurrent[idx] +
             (-calciumVals[idx] + CaEquilibriumVal[idx])*CaRemovalRate[idx]);
         }
-        auto neuronEnd = std::chrono::high_resolution_clock::now();
+        auto neuronEnd = std::chrono::steady_clock::now();
         neuronT += std::chrono::duration<double>(neuronEnd - diffusiveEnd).count();
 
         //Solve spikers
@@ -365,7 +378,7 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
             spikeBuffer[idx*spikeBufferNeuronStride + writeIndex[idx]] = randomOutput || spikeOutput; //think L and R values for later 
             writeIndex[idx] = (writeIndex[idx]+1)%maxDelayInt;
         }
-        auto spikerEnd = std::chrono::high_resolution_clock::now();
+        auto spikerEnd = std::chrono::steady_clock::now();
         spikerT += std::chrono::duration<double>(spikerEnd - neuronEnd).count();
 
         //maybe add a guard for the case where there is only one sim iter, or deal with that on the python side
@@ -399,7 +412,7 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
                 std::memcpy(recPtr + offsetElems, simPtr, innerSize * sizeof(float));
             }
             sampleInd++;
-            auto recordingEnd = std::chrono::high_resolution_clock::now();
+            auto recordingEnd = std::chrono::steady_clock::now();
             recordingT += std::chrono::duration<double>(recordingEnd - spikerEnd).count();
         }
         
