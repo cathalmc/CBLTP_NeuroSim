@@ -498,6 +498,8 @@ def genSimData(neuronDict,spikerDict,synapseDict,TS):
                 assert preSegmentIndex<nNeurons and postSegmentIndex<nNeurons, f"edge out of range {preSegmentIndex},{postSegmentIndex}"
                 addDiffusiveConnection(simulationData,preSegmentIndex,postSegmentIndex,diffusionRate)
 
+    nextPower2 = lambda x: int(2**(np.ceil(np.log2(x))))
+    maxDelayInt = nextPower2(maxDelayInt)
     simulationData["maxDelayInt"] = maxDelayInt
     simulationData["voltages"] = -75*np.ones(nNeurons,dtype = np.float32) + 1*np.linspace(-10,20,nNeurons, dtype=np.float32)
     simulationData["calciumVals"] = np.zeros(nNeurons,dtype = np.float32)

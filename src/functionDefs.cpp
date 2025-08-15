@@ -225,6 +225,9 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
     std::vector<int> indices(nChannels);
     std::iota(indices.begin(), indices.end(), 0); // Fill it with consecutive numbers
 
+    omp_set_num_threads(8);
+
+
     //auto executionPolicy = std::execution::seq;
     // std::for_each(executionPolicy, indices.begin(), indices.end(), [&](int connInd)  {
 
@@ -263,10 +266,12 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
         initializationT += std::chrono::duration<double>(initializationEnd - innerLoopStart).count();
         
         //Solve Channels 
-        std::iota(indices.begin(), indices.end(), 0); // Fill it with consecutive numbers
-        std::for_each(executionPolicy, indices.begin(), indices.end(), [&](int connInd)  {
+        // std::iota(indices.begin(), indices.end(), 0); // Fill it with consecutive numbers
+        // std::for_each(executionPolicy, indices.begin(), indices.end(), [&](int connInd)  {
+        #pragma omp parallel for schedule(static, 512)
+        for (long long int connInd = 0; connInd<nChannels; connInd++){
             //temporary variables
-            int idx = connInd;
+            long long int idx = connInd;
             int postSynapticNeuron = postNeuron[idx];
             int preSynapticNeuron = channelPreSpiker[idx];
             float V = voltages[postSynapticNeuron];
@@ -290,7 +295,8 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
             CaChannelCurrent[idx] = isThisCaCurrent[idx]*I;
             debugRecording[idx] = gatingTotal;
 
-            int readIndex = ((writeIndex[preSynapticNeuron] - inputDelay[idx]) % maxDelayInt + maxDelayInt) % maxDelayInt;
+            const int mask = maxDelayInt-1;
+            int readIndex = (writeIndex[preSynapticNeuron] - inputDelay[idx]) & mask;
             //readIndex = (writeIndex[preSynapticNeuron]-inputDelay[idx])%maxDelayInt;
             float perceivedSpike = (float)spikeBuffer[preSynapticNeuron*spikeBufferNeuronStride+readIndex]; //shit its a flattened 2d array, need to deal with the awkward indexing 
             perceivedSpike = std::max(perceivedSpike,spikeInputOverwriteVector[idx]); //stimulateion 
@@ -320,7 +326,8 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
             
 
 
-        });
+        }
+        //);
 
         auto channelEnd = std::chrono::steady_clock::now();
         channelT += std::chrono::duration<double>(channelEnd - initializationEnd).count();
