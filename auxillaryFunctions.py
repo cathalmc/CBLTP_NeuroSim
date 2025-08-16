@@ -510,7 +510,8 @@ def genSimData(neuronDict,spikerDict,synapseDict,TS):
 
     intKeys = ["channelPreSpiker","postNeuron", "nChannels","diffPostNeuron",
                "diffPreNeuron","nDiffusiveConnections","writeIndex",
-               "maxDelayInt","inputDelay","nNeurons","nSpikers","spikerPreNeuron"]
+               "maxDelayInt","inputDelay","nNeurons","nSpikers","spikerPreNeuron",
+               ]
     
     nonArrayKeys = ["nNeurons","maxDelayInt","nChannels","nDiffusiveConnections","name","nSpikers"]
     for key in simulationData.keys():
@@ -527,6 +528,7 @@ def genSimData(neuronDict,spikerDict,synapseDict,TS):
         else:
             print(f"Warning {key} is not a list or tuple") 
     
+    simulationData["exponent"] = np.array(simulationData["exponent"],dtype=np.int8)
     return simulationData,connectionToChannelMap
 
 

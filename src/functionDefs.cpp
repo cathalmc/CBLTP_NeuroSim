@@ -62,6 +62,30 @@ inline float solveGate(float x, float s, float TS, float xh, float xk, float xts
     return (tau*x +TS*xInf)/(tau+TS);
 }
 
+static inline float powiFast(float x, int e){
+    // non-negative e (store exponents as int8_t/uint8_t)
+    switch(e){
+        case 0: return 1.0f;
+        case 1: return x;
+        case 2: return x*x;
+        case 3: return x*x*x;
+        case 4: { float x2=x*x; return x2*x2; }
+        default:{ float r=1.0f; while(e){ if(e&1) r*=x; x*=x; e>>=1; } return r; }
+    }
+}
+static inline float sigmoidInl(float s, float xh, float xk, float minOp){
+    float z = expf((xh - s) * xk);
+    return minOp + 1.0f/(1.0f + z);
+}
+static inline float gateStep(float xOld, float s, float TS,
+                             float xh, float xk, float ts0, float ts1,
+                             float th, float tkInv, float minOp){
+    float xInf = sigmoidInl(s,   xh,  xk,  minOp);
+    float tau  = ts0 + ts1 * sigmoidInl(s, th, tkInv, 0.0f);
+    float inv  = 1.0f / (tau + TS);
+    return fmaf(TS, xInf, tau * xOld) * inv;
+}
+
 // inline float calcWeightChange(float p, float Ca, float rate, float gammaP, float gammaD, float thetaP, float thetaD){
 //     float pStar = 0.5;
 //     float revP = (1-p);
@@ -188,8 +212,8 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
     float *th = (float *) thBuffer.ptr;
     auto tkInvBuffer = systemInfo["tkInv"].cast<py::array_t<float>>().request();
     float *tkInv = (float *) tkInvBuffer.ptr;
-    auto exponentBuffer = systemInfo["exponent"].cast<py::array_t<float>>().request();
-    float *exponent = (float *) exponentBuffer.ptr;
+    auto exponentBuffer = systemInfo["exponent"].cast<py::array_t<int8_t>>().request();
+    int8_t *exponent = (int8_t *) exponentBuffer.ptr;
     auto minOpennessBuffer = systemInfo["minOpenness"].cast<py::array_t<float>>().request();
     float *minOpenness = (float *) minOpennessBuffer.ptr;
 
@@ -308,66 +332,142 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
         //Solve Channels 
         // std::iota(indices.begin(), indices.end(), 0); // Fill it with consecutive numbers
         // std::for_each(executionPolicy, indices.begin(), indices.end(), [&](int connInd)  {
-        #pragma omp parallel for schedule(dynamic, 256)
-        for (long long int connInd = 0; connInd<nChannels; connInd++){
-            //temporary variables
-            long long int idx = connInd;
-            int postSynapticNeuron = postNeuron[idx];
-            int preSynapticNeuron = channelPreSpiker[idx];
-            float V = voltages[postSynapticNeuron];
-            float Ca = calciumVals[postSynapticNeuron];
-            
-            //spikes = spikeVals[postSynapticNeuron];
+        // #pragma omp parallel for schedule(dynamic, 256)
+        // for (long long int connInd = 0; connInd<nChannels; connInd++){
+        //     //temporary variables
+        //     long long int idx = connInd;
+        //     int postSynapticNeuron = postNeuron[idx];
+        //     int preSynapticNeuron = channelPreSpiker[idx];
+        //     float V = voltages[postSynapticNeuron];
+        //     float Ca = calciumVals[postSynapticNeuron];
+        //     float g = conductance[idx] + conductanceGain[idx]*efficacy[idx];
 
-            float g = conductance[idx] + conductanceGain[idx]*efficacy[idx];
+        //     //multiply gating variables to get net gate opening
+        //     float gatingTotal = 1.0f;
+        //     for (size_t idy=0;idy<nGatingVariables;idy++){
+        //         float expnt = exponent[idx*chanStride + idy];
+        //         gatingTotal *= pow(x[idx*chanStride + idy],expnt);
+        //     }
 
-            //multiply gating variables to get net gate opening
-            float gatingTotal = 1.0f;
-            for (size_t idy=0;idy<nGatingVariables;idy++){
-                float expnt = exponent[idx*chanStride + idy];
-                gatingTotal *= pow(x[idx*chanStride + idy],expnt);
-            }
+        //     float I = g*gatingTotal*(V-Erevs[idx]);// g*gatingTotal*(V-Erev);
+        //     channelCurrent[idx] = I; //we accumulate later
+        //     CaChannelCurrent[idx] = isThisCaCurrent[idx]*I;
+        //     debugRecording[idx] = gatingTotal;
 
-            float I = g*gatingTotal*(V-Erevs[idx]);// g*gatingTotal*(V-Erev);
-            // netCurrent[postSynapticNeuron] += I;
-            // netCaCurrent[postSynapticNeuron] += isThisCaCurrent[idx]*I;
-            channelCurrent[idx] = I; //we accumulate later
-            CaChannelCurrent[idx] = isThisCaCurrent[idx]*I;
-            debugRecording[idx] = gatingTotal;
+        //     const int mask = maxDelayInt-1;
+        //     int readIndex = (writeIndex[preSynapticNeuron] - inputDelay[idx]) & mask;
+        //     //readIndex = (writeIndex[preSynapticNeuron]-inputDelay[idx])%maxDelayInt;
+        //     float perceivedSpike = (float)spikeBuffer[preSynapticNeuron*spikeBufferNeuronStride+readIndex]; //shit its a flattened 2d array, need to deal with the awkward indexing 
+        //     perceivedSpike = std::max(perceivedSpike,spikeInputOverwriteVector[idx]); //stimulateion 
 
-            const int mask = maxDelayInt-1;
-            int readIndex = (writeIndex[preSynapticNeuron] - inputDelay[idx]) & mask;
-            //readIndex = (writeIndex[preSynapticNeuron]-inputDelay[idx])%maxDelayInt;
-            float perceivedSpike = (float)spikeBuffer[preSynapticNeuron*spikeBufferNeuronStride+readIndex]; //shit its a flattened 2d array, need to deal with the awkward indexing 
-            perceivedSpike = std::max(perceivedSpike,spikeInputOverwriteVector[idx]); //stimulateion 
+        //     float dp = calcWeightChange(efficacy[idx],Ca,rate[idx],gammaP[idx],gammaD[idx],thetaP[idx],thetaD[idx]);
+        //     efficacy[idx] +=timeStep*dp;
+        //     float gateVar;
+        //     for (size_t idy=0;idy<nGatingVariables;idy++) {
+        //         if (idy<2) gateVar = V;
+        //         else if (idy==2) gateVar = Ca; //Ca
+        //         else gateVar = perceivedSpike; //Spikes
 
-            float dp = calcWeightChange(efficacy[idx],Ca,rate[idx],gammaP[idx],gammaD[idx],thetaP[idx],thetaD[idx]);
-            efficacy[idx] +=timeStep*dp;
-            float gateVar;
-            for (size_t idy=0;idy<nGatingVariables;idy++) {
-                if (idy<2) gateVar = V;
-                else if (idy==2) gateVar = Ca; //Ca
-                else gateVar = perceivedSpike; //Spikes
+        //         float xp = x[idx*chanStride + idy];
+        //         float vHalfp = vHalf[idx*chanStride + idy];
+        //         float vKip = vKi[idx*chanStride + idy];
+        //         float tau0p = tau0[idx*chanStride + idy];
+        //         float tau1p = tau1[idx*chanStride + idy];
+        //         float thp = th[idx*chanStride + idy];
+        //         float tkInvp = tkInv[idx*chanStride + idy];
+        //         float minOp = minOpenness[idx*chanStride + idy];
 
-                float xp = x[idx*chanStride + idy];
-                float vHalfp = vHalf[idx*chanStride + idy];
-                float vKip = vKi[idx*chanStride + idy];
-                float tau0p = tau0[idx*chanStride + idy];
-                float tau1p = tau1[idx*chanStride + idy];
-                float thp = th[idx*chanStride + idy];
-                float tkInvp = tkInv[idx*chanStride + idy];
-                float minOp = minOpenness[idx*chanStride + idy];
-
-                x[idx*chanStride + idy] = solveGate(xp,gateVar,timeStep,vHalfp,vKip,tau0p,tau1p,thp,tkInvp,minOp);
+        //         x[idx*chanStride + idy] = solveGate(xp,gateVar,timeStep,vHalfp,vKip,tau0p,tau1p,thp,tkInvp,minOp);
 
 
-            }
+        //     }
 
-            
-
-
-        }
+        // }
         //);
+
+
+
+
+        const int mask = maxDelayInt - 1;
+
+        // alias “rows” once per channel (hoist) to cut address calc
+        #pragma omp parallel for schedule(dynamic, 256)   // or static; dynamic with bigger chunk if you prefer
+        for (long long connInd = 0; connInd < nChannels; ++connInd){
+            const int idx  = (int)connInd;
+            const int post = postNeuron[idx];
+            const int pre  = channelPreSpiker[idx];
+
+            const float V  = voltages[post];
+            const float Ca = calciumVals[post];
+
+            // ---- hoist base pointers for this channel (SoA rows) ----
+            const int base = idx * chanStride;
+            // state vector (x) and parameters per gate (fixed 4 gates: V0,V1,Ca,Spike)
+            float      * __restrict xRow    = &x[base];             // [0..3]
+            const int8_t* __restrict eRow   = &exponent[base];    // int8 exponents
+            const float * __restrict vHalfR = &vHalf[base];
+            const float * __restrict vKiR   = &vKi[base];
+            const float * __restrict tau0R  = &tau0[base];
+            const float * __restrict tau1R  = &tau1[base];
+            const float * __restrict thR    = &th[base];
+            const float * __restrict tkInvR = &tkInv[base];
+            const float * __restrict minOpR = &minOpenness[base];
+
+            // ---- perceived spike (bool 2D flattened; respect both strides) ----
+            int wread = (writeIndex[pre] - inputDelay[idx]) & mask;
+            bool sbit = spikeBuffer[(size_t)pre * spikeBufferNeuronStride
+                                + (size_t)wread * spikeBufferTimeStride];
+            float sSpike = sbit ? 1.0f : 0.0f;
+            sSpike = std::max(sSpike, spikeInputOverwriteVector[idx]);  // overwrite can raise it
+
+            // ---- gating product (2 V, 1 Ca, 1 Spike) with int exponents ----
+            float g0 = powiFast(xRow[0], (int)eRow[0]);
+            float g1 = powiFast(xRow[1], (int)eRow[1]);
+            float g2 = powiFast(xRow[2], (int)eRow[2]);
+            float g3 = powiFast(xRow[3], (int)eRow[3]);
+            float gatingTotal = ((g0 * g1) * (g2 * g3));
+
+            // ---- current ----
+            float g = conductance[idx] + conductanceGain[idx] * efficacy[idx];
+            float I = g * gatingTotal * (V - Erevs[idx]);
+            channelCurrent[idx]   = I;
+            CaChannelCurrent[idx] = isThisCaCurrent[idx] ? I : 0.0f;
+            debugRecording[idx]   = gatingTotal;
+
+            // ---- plasticity ----
+            float dp = calcWeightChange(efficacy[idx], Ca, rate[idx],
+                                        gammaP[idx], gammaD[idx], thetaP[idx], thetaD[idx]);
+            efficacy[idx] += timeStep * dp;
+
+            // ---- gate updates (specialized 4 gates) ----
+            // V gate 0
+            xRow[0] = gateStep(xRow[0], V, timeStep,
+                            vHalfR[0], vKiR[0], tau0R[0], tau1R[0], thR[0], tkInvR[0], minOpR[0]);
+            // V gate 1
+            xRow[1] = gateStep(xRow[1], V, timeStep,
+                            vHalfR[1], vKiR[1], tau0R[1], tau1R[1], thR[1], tkInvR[1], minOpR[1]);
+            // Ca gate
+            xRow[2] = gateStep(xRow[2], Ca, timeStep,
+                            vHalfR[2], vKiR[2], tau0R[2], tau1R[2], thR[2], tkInvR[2], minOpR[2]);
+
+            // Spike gate: if sSpike is exactly 0 or 1, use precomputed cases
+            if (sSpike <= 0.0f || sSpike >= 1.0f){
+                const bool one = (sSpike >= 0.5f);
+                const float xInf0 = sigmoidInl(0.0f, vHalfR[3], vKiR[3], minOpR[3]);
+                const float xInf1 = sigmoidInl(1.0f, vHalfR[3], vKiR[3], minOpR[3]);
+                const float tau0v = tau0R[3] + tau1R[3] * sigmoidInl(0.0f, thR[3],  tkInvR[3], 0.0f);
+                const float tau1v = tau0R[3] + tau1R[3] * sigmoidInl(1.0f, thR[3],  tkInvR[3], 0.0f);
+                const float xInf  = one ? xInf1 : xInf0;
+                const float tau   = one ? tau1v : tau0v;
+                float inv = 1.0f / (tau + timeStep);
+                xRow[3] = fmaf(timeStep, xInf, tau * xRow[3]) * inv;
+            } else {
+                xRow[3] = gateStep(xRow[3], sSpike, timeStep,
+                                vHalfR[3], vKiR[3], tau0R[3], tau1R[3], thR[3], tkInvR[3], minOpR[3]);
+            }
+        }
+
+
 
         auto channelEnd = std::chrono::steady_clock::now();
         channelT += std::chrono::duration<double>(channelEnd - initializationEnd).count();
