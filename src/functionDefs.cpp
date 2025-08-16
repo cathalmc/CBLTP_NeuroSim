@@ -249,18 +249,29 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
     
     std::vector<int> indices(nChannels);
     std::iota(indices.begin(), indices.end(), 0); // Fill it with consecutive numbers
+    //auto executionPolicy = std::execution::seq;
+    // std::for_each(executionPolicy, indices.begin(), indices.end(), [&](int connInd)  {
+    // });
 
+    //Optimizations
     omp_set_num_threads(28);
-
+    
     const int mask = maxDelayInt - 1;
-
     // A changing base seed for RNG reproducibility across time steps if desired
     const uint64_t baseSeed = 0xA3C59AC3DUL;
 
-    //auto executionPolicy = std::execution::seq;
-    // std::for_each(executionPolicy, indices.begin(), indices.end(), [&](int connInd)  {
+    //Optimizing the accumulate section 
+    std::vector<int> neuronOffsets(nNeurons+1, 0);
+    for (int c=0;c<nChannels;++c) ++neuronOffsets[postNeuron[c]];
+    // prefix sum -> offsets
+    int run=0; for (int n=0;n<=nNeurons;++n){ int t=neuronOffsets[n]; neuronOffsets[n]=run; run+=t; }
+    std::vector<int> chanIndexByNeuron(nChannels);
+    // fill buckets
+    std::vector<int> cursor = neuronOffsets; // copy
+    for (int c=0;c<nChannels;++c) chanIndexByNeuron[cursor[postNeuron[c]]++] = c;
 
-    // });
+
+
     auto executionPolicy = std::execution::par_unseq; //par_unseq
     double initializationT,channelT,accumulateT,diffusiveT, spikerT,neuronT, recordingT;
     initializationT = 0.0, channelT = 0.0, accumulateT = 0.0, diffusiveT = 0.0, spikerT = 0.0, neuronT = 0.0, recordingT = 0.0;
@@ -361,13 +372,23 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
         auto channelEnd = std::chrono::steady_clock::now();
         channelT += std::chrono::duration<double>(channelEnd - initializationEnd).count();
 
-        //accumulate in a separate loop to allow for parallelizing the above loop
-        for (int idx=0;idx<nChannels;idx++){
-            int postSynapticNeuron = postNeuron[idx];
-            float I = channelCurrent[idx];
-            netCurrent[postSynapticNeuron] += I;
-            netCaCurrent[postSynapticNeuron] += isThisCaCurrent[idx]*I;
+        #pragma omp parallel for schedule(static) // uniform work per neuron
+        for (int n=0; n<nNeurons; ++n){
+            float sI=0.0f, sCa=0.0f;
+            int start = neuronOffsets[n], end = neuronOffsets[n+1];
+
+            // encourage vectorization
+            //#pragma omp simd reduction(+:sI,sCa)
+            for (int k=start; k<end; ++k){
+                int c = chanIndexByNeuron[k];
+                float I = channelCurrent[c];
+                sI  += I;
+                sCa += I * (float)isThisCaCurrent[c];  // or use pre-stored 0.0/1.0
+            }
+            netCurrent[n]   += sI;
+            netCaCurrent[n] += sCa;
         }
+
         auto accumulateEnd = std::chrono::steady_clock::now();
         accumulateT += std::chrono::duration<double>(accumulateEnd - channelEnd).count();
 
