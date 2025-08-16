@@ -15,6 +15,30 @@ long long paritySum(long long N){
     return s;
 }
 
+struct Xoshiro32 {
+    uint32_t s[4];
+    static inline uint32_t rotl(uint32_t x, int k){ return (x<<k)|(x>>(32-k)); }
+    explicit Xoshiro32(uint64_t seed){
+        auto splitmix = [](uint64_t& x){
+            x += 0x9E3779B97F4A7C15ull;
+            uint64_t z = x;
+            z = (z ^ (z>>30)) * 0xBF58476D1CE4E5B9ull;
+            z = (z ^ (z>>27)) * 0x94D049BB133111EBull;
+            return z ^ (z>>31);
+        };
+        uint64_t x = seed;
+        for (int i=0;i<4;++i) s[i] = static_cast<uint32_t>(splitmix(x));
+        if (!(s[0]|s[1]|s[2]|s[3])) s[0] = 1;
+    }
+    inline uint32_t nextU32(){
+        uint32_t r = rotl(s[1]*5u,7)*9u;
+        uint32_t t = s[1] << 9;
+        s[2]^=s[0]; s[3]^=s[1]; s[1]^=s[2]; s[0]^=s[3];
+        s[2]^=t; s[3]=rotl(s[3],11);
+        return r;
+    }
+    inline float nextFloat(){ return (nextU32() >> 8) * (1.0f/16777216.0f); } // 24-bit mantissa
+};
 
 PYBIND11_MODULE(cathalTest, m) {
     m.def("testFunc",&testFunc,"run my lil test function",
@@ -93,10 +117,11 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
 
     //bool arrays
     auto spikeBufferBuffer = systemInfo["spikeBuffer"].cast<py::array_t<bool, py::array::c_style>>().request();
+    bool* spikeBuffer = (bool *) spikeBufferBuffer.ptr;
     int psuedoMaxDelayInt = spikeBufferBuffer.shape[1];
     size_t spikeBufferNeuronStride = spikeBufferBuffer.strides[0]/sizeof(bool);
     size_t spikeBufferTimeStride = spikeBufferBuffer.strides[1]/sizeof(bool);
-    bool* spikeBuffer = (bool *) spikeBufferBuffer.ptr;
+    
 
     //assert(maxDelayInt==psuedoMaxDelayInt); //is this best practice in c++?
     if (maxDelayInt != psuedoMaxDelayInt)
@@ -225,8 +250,12 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
     std::vector<int> indices(nChannels);
     std::iota(indices.begin(), indices.end(), 0); // Fill it with consecutive numbers
 
-    omp_set_num_threads(8);
+    omp_set_num_threads(28);
 
+    const int mask = maxDelayInt - 1;
+
+    // A changing base seed for RNG reproducibility across time steps if desired
+    const uint64_t baseSeed = 0xA3C59AC3DUL;
 
     //auto executionPolicy = std::execution::seq;
     // std::for_each(executionPolicy, indices.begin(), indices.end(), [&](int connInd)  {
@@ -268,7 +297,7 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
         //Solve Channels 
         // std::iota(indices.begin(), indices.end(), 0); // Fill it with consecutive numbers
         // std::for_each(executionPolicy, indices.begin(), indices.end(), [&](int connInd)  {
-        #pragma omp parallel for schedule(static, 512)
+        #pragma omp parallel for schedule(dynamic, 256)
         for (long long int connInd = 0; connInd<nChannels; connInd++){
             //temporary variables
             long long int idx = connInd;
@@ -375,16 +404,53 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
         auto neuronEnd = std::chrono::steady_clock::now();
         neuronT += std::chrono::duration<double>(neuronEnd - diffusiveEnd).count();
 
-        //Solve spikers
+        // //Solve spikers
+        // 
+        // const bool pow2 = (maxDelayInt & (maxDelayInt - 1)) == 0;
+        // const int mask  = maxDelayInt - 1;
+        // #pragma omp parallel for schedule(dynamic, 512)
+        // for (long long int idx=0;idx<nSpikers;idx++){
+        //     float r = uniformFloatDist(gen);
+        //     bool randomOutput = r<spikerProbability[idx];
+        //     bool spikeOutput = spikerNeuronScale[idx] * (float)((voltages[idx]>vThreshold));
+        //     spikeBuffer[idx*spikeBufferNeuronStride + writeIndex[idx]] = randomOutput || spikeOutput; //think L and R values for later 
+        //     writeIndex[idx] = (writeIndex[idx]+1)%maxDelayInt;
+        // }
+
         constexpr float vThreshold = 0.0f;
-        for (size_t idx=0;idx<nSpikers;idx++){
-            //29/7 continue implenting spikers 
-            float r = uniformFloatDist(gen);
-            bool randomOutput = r<spikerProbability[idx];
-            bool spikeOutput = spikerNeuronScale[idx] * (float)((voltages[idx]>vThreshold));
-            spikeBuffer[idx*spikeBufferNeuronStride + writeIndex[idx]] = randomOutput || spikeOutput; //think L and R values for later 
-            writeIndex[idx] = (writeIndex[idx]+1)%maxDelayInt;
+        #pragma omp parallel
+        {
+            // Per-thread RNG; mix in thread id and time step to avoid identical streams
+            const int tid = omp_get_thread_num();
+            Xoshiro32 rng(baseSeed
+                          ^ (0x9E3779B97F4A7C15ull * (uint64_t)(1 + tid))
+                          ^ ((uint64_t)timeInd << 32));
+
+            #pragma omp for schedule(dynamic, 512)
+            for (long long idx = 0; idx < (long long)nSpikers; ++idx) {
+
+                // 1) Random term
+                float r = rng.nextFloat();                             // [0,1)
+                bool randomOutput = r < spikerProbability[idx];
+
+                // 2) Spike term (branchless compare; keep your scale semantics)
+                // If spikerNeuronScale is a 0/1 gate, you can fold this to a bit op; here we keep your multiply.
+                float spikeTerm = spikerNeuronScale[idx] * (float)(voltages[idx] > vThreshold);
+                bool spikeOutput = (spikeTerm != 0.0f);
+
+                // 3) Write into ring buffer (use both strides to respect NumPy layout)
+                int w = writeIndex[idx];                               // current head
+                const size_t base = (size_t)idx * spikeBufferNeuronStride;
+                spikeBuffer[base + (size_t)w * spikeBufferTimeStride] = (randomOutput || spikeOutput);
+
+                // 4) Advance head with mask (power-of-two fast path)
+                writeIndex[idx] = (w + 1) & mask;
+            }
         }
+
+
+
+
         auto spikerEnd = std::chrono::steady_clock::now();
         spikerT += std::chrono::duration<double>(spikerEnd - neuronEnd).count();
 
