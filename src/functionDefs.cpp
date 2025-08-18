@@ -64,6 +64,7 @@ inline float solveGate(float x, float s, float TS, float xh, float xk, float xts
 
 static inline float powiFast(float x, int e){
     // non-negative e (store exponents as int8_t/uint8_t)
+    // for gating exponents, the max power is 4, so maybe we could limit this
     switch(e){
         case 0: return 1.0f;
         case 1: return x;
@@ -386,8 +387,6 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
         //);
 
 
-
-
         const int mask = maxDelayInt - 1;
 
         // alias “rows” once per channel (hoist) to cut address calc
@@ -450,21 +449,9 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
             xRow[2] = gateStep(xRow[2], Ca, timeStep,
                             vHalfR[2], vKiR[2], tau0R[2], tau1R[2], thR[2], tkInvR[2], minOpR[2]);
 
-            // Spike gate: if sSpike is exactly 0 or 1, use precomputed cases
-            if (sSpike <= 0.0f || sSpike >= 1.0f){
-                const bool one = (sSpike >= 0.5f);
-                const float xInf0 = sigmoidInl(0.0f, vHalfR[3], vKiR[3], minOpR[3]);
-                const float xInf1 = sigmoidInl(1.0f, vHalfR[3], vKiR[3], minOpR[3]);
-                const float tau0v = tau0R[3] + tau1R[3] * sigmoidInl(0.0f, thR[3],  tkInvR[3], 0.0f);
-                const float tau1v = tau0R[3] + tau1R[3] * sigmoidInl(1.0f, thR[3],  tkInvR[3], 0.0f);
-                const float xInf  = one ? xInf1 : xInf0;
-                const float tau   = one ? tau1v : tau0v;
-                float inv = 1.0f / (tau + timeStep);
-                xRow[3] = fmaf(timeStep, xInf, tau * xRow[3]) * inv;
-            } else {
-                xRow[3] = gateStep(xRow[3], sSpike, timeStep,
-                                vHalfR[3], vKiR[3], tau0R[3], tau1R[3], thR[3], tkInvR[3], minOpR[3]);
-            }
+            xRow[3] = gateStep(xRow[3], sSpike, timeStep,
+                                 vHalfR[3], vKiR[3], tau0R[3], tau1R[3], thR[3], tkInvR[3], minOpR[3]);
+
         }
 
 
