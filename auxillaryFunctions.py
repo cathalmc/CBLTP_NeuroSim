@@ -51,6 +51,7 @@ def solveGate(x,s,TS,xh,xk,xt0,xt1,xth,xtk,minOpenness):
     tau = xt0 + xt1*sigmoid(s,xth,xtk,0)
     #return x + TS*(xInf-x)/tau
     return (tau*x + TS*xInf)/(tau+TS)
+
 def calcWeightChange(p,Ca,rate,gammaP,gammaD,thetaP,thetaD):
     #from the Graupner and Brunel paper
     #rate = 1/tau 
@@ -62,6 +63,60 @@ def calcWeightChange(p,Ca,rate,gammaP,gammaD,thetaP,thetaD):
     Noise = 0
     return rate*fp+potentiation+depression+Noise
 
+def calcWeightChangeVectorized(ac,TS):
+    rate,gammaP,gammaD,thetaP,thetaD = ac["rate"],ac["gammaP"],ac["gammaD"],ac["thetaP"],ac["thetaD"]
+    p = ac["efficacy"]
+    Ca = ac["calciumVals"][ac["postNeuron"]]
+    #from the Graupner and Brunel paper
+    #rate = 1/tau 
+    pStar = 0.5
+    revP = (1.0-p)
+    fp = -p*revP*(pStar-p)
+    potentiation = gammaP*revP*(Ca>thetaP)
+    depression = -gammaD*p*(thetaD<Ca)*(Ca<=thetaP)
+    Noise = 0
+    dp = rate*fp+potentiation+depression+Noise
+    ac["efficacy"]+=TS*dp
+
+def fastChannelUpdate(ac,TS,spikeOverwriteList):
+    xs = ac["x"].flatten()
+    xhs,xks = ac["vHalf"].flatten(),ac["vKi"].flatten()
+    xts0,xts1 = ac["tau0"].flatten(),ac["tau1"].flatten()
+    xths,xtks = ac["th"].flatten(),ac["tkInv"].flatten()
+    V = ac["voltages"][ac["postNeuron"]]
+    minOpenness = ac["minOpenness"].flatten()
+    Ca = ac["calciumVals"][ac["postNeuron"]]
+
+    #spikeOverwriteList = np.zeros(ac["nChannels"])
+
+    synapseDelay = ac["inputDelay"]
+    readIndex = ((ac["writeIndex"][ac["channelPreSpiker"]]-synapseDelay)%ac["maxDelayInt"])
+    perceivedSpike = ac["spikeBuffer"][ac["channelPreSpiker"]][readIndex].T
+    perceivedSpike = np.maximum(spikeOverwriteList,perceivedSpike)[0]
+
+    inputs = np.stack([V,V,Ca,perceivedSpike],-1).flatten()
+    res = solveGate(xs,inputs,TS,xhs,xks,xts0,xts1,xths,xtks,minOpenness)
+    ac["x"] = res.reshape([-1,4])
+
+def updateCurrents(ac):
+    exponents = ac["exponent"].flatten()
+    xs = ac["x"].flatten()
+    scaled = xs*exponents
+    gatingTotal = np.ones(ac["nChannels"])
+    np.multiply.at(gatingTotal,np.repeat(np.arange(ac["nChannels"]),4),scaled)
+
+    V = ac["voltages"][ac["postNeuron"]]
+    minOpenness = ac["minOpenness"]
+    Erev = ac["Erev"]
+    g0 = ac["conductance"]
+    p = ac["efficacy"]
+    w = ac["conductanceGain"]
+    CaCurrent = ac["CaCurrent"]
+
+    g = g0 + w*p
+    I = g*gatingTotal*(V-Erev) 
+    ac["current"] = I
+    ac["CaChannelCurrent"] = CaCurrent*I 
 
 def solveChannels(ac,spikeOverwriteList,TS):
     nChannels = ac["nChannels"]
@@ -208,7 +263,7 @@ def genBiasStimArrays(stimInfoBiasCurrent):
     biasStimValues = biasStimValues[biasStimSortingInds]
     return biasStimTimes,biasStimSegments,biasStimValues
 
-def solveSystemStandard(ac,TS,runTime,stimInfoSpikes={},stimInfoCurrents= {},
+def solveSystemStandard(ac,TS,runTime,stimInfoSpikes={},stimInfoCurrents= {},vectorized=False,
                         recordingKeys = ["voltages","calciumVals","netCurrent","current","spikeBuffer"]):
     nIterations = int(runTime/TS)
     ##Spike stim
@@ -245,7 +300,14 @@ def solveSystemStandard(ac,TS,runTime,stimInfoSpikes={},stimInfoCurrents= {},
             biasStimArrayIter +=1
 
         #update the gates
-        solveChannels(ac,spikeOverwriteList,TS)
+        #solveChannels(ac,spikeOverwriteList,TS)
+        if vectorized:
+            updateCurrents(ac)
+            fastChannelUpdate(ac,TS,spikeOverwriteList)
+            calcWeightChangeVectorized(ac,TS)
+        else:
+            solveChannels(ac,spikeOverwriteList,TS)
+
 
         solveDiffusiveConnections(ac)
 
