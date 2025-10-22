@@ -7,6 +7,8 @@ def standardPlot(data,ax=None,ls="-"):
     if ax is None:
         fig,ax = plt.subplots(len(data.keys())-1,1,figsize=(6,1.8*len(data.keys())),dpi=100,sharex=True)
     time = data["time"]
+    if type(ax) is not np.ndarray:
+        ax = [ax]
     for i,(key,val) in enumerate(data.items()):
         if key != "time":
             ax[i].set_title(key)
@@ -94,19 +96,17 @@ def fastChannelUpdate(ac,TS,spikeOverwriteList):
     perceivedSpike = ac["spikeBuffer"][ac["channelPreSpiker"]][readIndex].T
     perceivedSpike = np.maximum(spikeOverwriteList,perceivedSpike)[0]
 
-    inputs = np.stack([V,V,Ca,perceivedSpike],-1).flatten()
+    inputs = np.stack([V,V,Ca,perceivedSpike],-1,dtype=np.float32).flatten()
     res = solveGate(xs,inputs,TS,xhs,xks,xts0,xts1,xths,xtks,minOpenness)
     ac["x"] = res.reshape([-1,4])
 
 def updateCurrents(ac):
-    exponents = ac["exponent"].flatten()
-    xs = ac["x"].flatten()
-    scaled = xs*exponents
-    gatingTotal = np.ones(ac["nChannels"])
-    np.multiply.at(gatingTotal,np.repeat(np.arange(ac["nChannels"]),4),scaled)
+    xs = ac["x"]
+    exponents = ac["exponent"]
+
+    gatingTotal = np.prod(xs ** exponents, axis=1)
 
     V = ac["voltages"][ac["postNeuron"]]
-    minOpenness = ac["minOpenness"]
     Erev = ac["Erev"]
     g0 = ac["conductance"]
     p = ac["efficacy"]
@@ -117,6 +117,7 @@ def updateCurrents(ac):
     I = g*gatingTotal*(V-Erev) 
     ac["current"] = I
     ac["CaChannelCurrent"] = CaCurrent*I 
+    ac["debugRecording"] = gatingTotal
 
 def solveChannels(ac,spikeOverwriteList,TS):
     nChannels = ac["nChannels"]
@@ -285,8 +286,8 @@ def solveSystemStandard(ac,TS,runTime,stimInfoSpikes={},stimInfoCurrents= {},vec
         #calculate currents
         ac["netCurrent"] = np.zeros([nNeurons])
         ac["netCaCurrent"] = np.zeros([nNeurons])
-        spikeOverwriteList = np.zeros(nChannels)
-        biasOverWriteList = np.zeros(nNeurons)
+        spikeOverwriteList = np.zeros(nChannels,dtype=np.float32)
+        biasOverWriteList = np.zeros(nNeurons,dtype=np.float32)
 
         while spikeStimArrayIter<maxSpikeStimInd and iteration == spikeStimTimes[spikeStimArrayIter]:
             syn = spikeStimNeurons[spikeStimArrayIter]
