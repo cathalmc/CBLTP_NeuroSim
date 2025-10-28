@@ -546,7 +546,7 @@ class graphApp:
                 dcc.Input(
                     id="network-filename",
                     type="text",
-                    value="networkD.json",
+                    value="test.json",
                     debounce=True,
                     style={"width": "100%", "marginBottom": "6px"}
                 ),
