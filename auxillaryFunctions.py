@@ -93,8 +93,8 @@ def fastChannelUpdate(ac,TS,spikeOverwriteList):
 
     synapseDelay = ac["inputDelay"]
     readIndex = ((ac["writeIndex"][ac["channelPreSpiker"]]-synapseDelay)%ac["maxDelayInt"])
-    perceivedSpike = ac["spikeBuffer"][ac["channelPreSpiker"]][readIndex].T
-    perceivedSpike = np.maximum(spikeOverwriteList,perceivedSpike)[0]
+    perceivedSpike = ac["spikeBuffer"][ac["channelPreSpiker"],readIndex]
+    perceivedSpike = np.maximum(spikeOverwriteList,perceivedSpike)
 
     inputs = np.stack([V,V,Ca,perceivedSpike],-1,dtype=np.float32).flatten()
     res = solveGate(xs,inputs,TS,xhs,xks,xts0,xts1,xths,xtks,minOpenness)
@@ -386,8 +386,8 @@ def genDefaultPlasticSynapseData(gain):
         "efficacy": 0, #p, unitless
         "conductanceGain": gain, #
         "rate": 0.05, #ms
-        "gammaP": 0.12, #p per ms
-        "gammaD": 0.078, #p per ms
+        "gammaP": 0.4e-5, #p per ms
+        "gammaD": 0.3e-5, #p per ms
         "thetaP": 0.68, #Ca mol/L
         "thetaD": 0.33, #Ca mol/L
     }
