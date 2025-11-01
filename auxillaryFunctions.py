@@ -415,12 +415,31 @@ def genAMPA(TS,baseConductance,**plasticityKwargs):
 
     return AMPA
 
-def genNMDA(TS,baseConductance,**plasticityKwargs):
+def genNMDA_ion(TS,baseConductance,**plasticityKwargs):
     #NOTE: not sure if timescale is correct
     timeScale = 100
     NMDA = {"name":"NMDAR",
                 "ion":"Cation",
             "Erev": 0,
+            "conductance": baseConductance,
+            "current":0,
+            "CaCurrent": 1,
+            "gates":{
+            "vGate1":genGate(-30,1/8,0.1,0.1,-1000,100),
+            "vGate2":genOpenGate(),
+            "CaGate":genOpenGate(),
+            "spikeGate":genSynapseGate(timeScale,TS)}}
+    for key,val in genDefaultPlasticSynapseData(**plasticityKwargs).items():
+        NMDA[key] = val
+
+    return NMDA
+
+def genNMDA_Ca(TS,baseConductance,**plasticityKwargs):
+    #NOTE: not sure if timescale is correct
+    timeScale = 100
+    NMDA = {"name":"NMDAR",
+                "ion":"Cation",
+            "Erev": 100, #ECa is very high, could be up to 140
             "conductance": baseConductance,
             "current":0,
             "CaCurrent": 1,
@@ -626,7 +645,8 @@ class Spiker():
 
 def createSynapses(prePopulation,postPopulation,nSynapses,baseConductance,delay,TS):
     synapses = {"AMPA":genAMPA(TS,baseConductance,conductanceGain=0),
-                "NMDA":genNMDA(TS,baseConductance,conductanceGain=0),
+                "NMDA_ion":genNMDA_ion(TS,baseConductance,conductanceGain=0),
+                "NMDA_Ca":genNMDA_Ca(TS,baseConductance,conductanceGain=0),
                 "GABA":genGABA(TS,baseConductance,conductanceGain=0)}
 
     nPre,nPost = len(prePopulation),len(postPopulation)
