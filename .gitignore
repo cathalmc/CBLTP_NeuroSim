@@ -1,9 +1,7 @@
 *.bin
 /build
-__pycache__/auxillaryFunctions.cpython-310.pyc
-__pycache__/auxillaryFunctions.cpython-313.pyc
 *./pyc
 
-__pycache__/auxillaryFunctions.cpython-311.pyc
 *.pyd
 *.pdb
+*.pyc

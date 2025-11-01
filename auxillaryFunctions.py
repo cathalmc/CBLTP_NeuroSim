@@ -381,18 +381,21 @@ def genSynapseGate(xt1,TS):
     return genGate(0.5,100,xt0,xt1,0.5,-100)
 
 
-def genDefaultPlasticSynapseData(gain):
-    return {
+def genDefaultPlasticSynapseData(**kwargs):
+    plasticDict = {
         "efficacy": 0, #p, unitless
-        "conductanceGain": gain, #
+        "conductanceGain": 0, #
         "rate": 0.05, #ms
-        "gammaP": 0.4e-5, #p per ms
-        "gammaD": 0.3e-5, #p per ms
-        "thetaP": 0.68, #Ca mol/L
-        "thetaD": 0.33, #Ca mol/L
+        "gammaP": 0.68, #p per ms
+        "gammaD": 0.33, #p per ms
+        "thetaP": 0.4e-5, #Ca mol/L
+        "thetaD": 0.3e-5, #Ca mol/L
     }
+    for k,v in kwargs.items():
+        plasticDict[k] = v 
+    return plasticDict
 
-def genAMPA(TS,baseConductance,conductanceGain = 10):
+def genAMPA(TS,baseConductance,**plasticityKwargs):
     #for the synapses to work properly you need to know TS
     #This lets the conductance go instantly from 0 to 1
     AMPA = {"name":"AMPAR",
@@ -407,12 +410,12 @@ def genAMPA(TS,baseConductance,conductanceGain = 10):
             "CaGate":genOpenGate(),
             "spikeGate":genSynapseGate(7,TS)}} #decay is about 7ms for AMPA and GABA, though it can vary a lot, tbh this could be a random variable
     
-    for key,val in genDefaultPlasticSynapseData(conductanceGain).items():
+    for key,val in genDefaultPlasticSynapseData(**plasticityKwargs).items():
         AMPA[key] = val
 
     return AMPA
 
-def genNMDA(TS,baseConductance,conductanceGain = 10):
+def genNMDA(TS,baseConductance,**plasticityKwargs):
     #NOTE: not sure if timescale is correct
     timeScale = 100
     NMDA = {"name":"NMDAR",
@@ -426,14 +429,14 @@ def genNMDA(TS,baseConductance,conductanceGain = 10):
             "vGate2":genOpenGate(),
             "CaGate":genOpenGate(),
             "spikeGate":genSynapseGate(timeScale,TS)}}
-    for key,val in genDefaultPlasticSynapseData(conductanceGain).items():
+    for key,val in genDefaultPlasticSynapseData(**plasticityKwargs).items():
         NMDA[key] = val
 
     return NMDA
 
 
-def genGABA(TS,baseConductance,conductanceGain):
-    GABA = genAMPA(TS,baseConductance,conductanceGain)
+def genGABA(TS,baseConductance,**plasticityKwargs):
+    GABA = genAMPA(TS,baseConductance,**plasticityKwargs)
     GABA["name"] = "GABA"
     GABA["Erev"] = -80
     return GABA
