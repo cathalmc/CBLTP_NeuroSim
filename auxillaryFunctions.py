@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os,sys
 from copy import deepcopy
+import tqdm
 
 def standardPlot(data,ax=None,ls="-"):
     if ax is None:
@@ -217,7 +218,7 @@ def solveNeurons(ac,biasOverWriteList,TS):
 
 
 
-def solveSpikers(ac):
+def solveSpikers(ac,iteration):
     writeIndex = ac["writeIndex"]
     spikerPreNeuron = ac["spikerPreNeuron"] #this is the neuron that gets checked 
     spikerNeuronScale = ac["spikerNeuronScale"] #0 or 1
@@ -231,7 +232,9 @@ def solveSpikers(ac):
         spikeOutput = float(randomOutput or spikeOutput)                      # for now its very simple spike threshold 
         spikeBuffer[i][writeIndex[i]] = spikeOutput         
         writeIndex[i] = (writeIndex[i]+1)%ac["maxDelayInt"]
-
+        ac["spikerOutput"][i] = spikeOutput #This is just a recording variable, not used in any caclulations
+        if spikeOutput>0:
+            ac["spikeTrains"][i].append(iteration)
 
 
 def genSpikeStimArrays(stimInfoSpikes):
@@ -264,7 +267,7 @@ def genBiasStimArrays(stimInfoBiasCurrent):
     biasStimValues = biasStimValues[biasStimSortingInds]
     return biasStimTimes,biasStimSegments,biasStimValues
 
-def solveSystemStandard(ac,TS,runTime,stimInfoSpikes={},stimInfoCurrents= {},vectorized=False,
+def solveSystemStandard(ac,TS,runTime,stimInfoSpikes={},stimInfoCurrents= {},vectorized=False,nSamples=None,useTQDM = False,
                         recordingKeys = ["voltages","calciumVals","netCurrent","current","spikeBuffer"]):
     nIterations = int(runTime/TS)
     ##Spike stim
@@ -281,7 +284,14 @@ def solveSystemStandard(ac,TS,runTime,stimInfoSpikes={},stimInfoCurrents= {},vec
     tv = np.linspace(0,runTime,nIterations)
     nNeurons = ac["nNeurons"]
     nChannels = ac["nChannels"]
+
+    if nSamples is None:
+        samplingInterval = 1
+    else:
+        samplingInterval = max(1,int(nIterations/nSamples))
     
+    tv = tqdm.tqdm(tv) if useTQDM else tv
+    timeRecord = []
     for iteration,t in enumerate(tv):
         #calculate currents
         ac["netCurrent"] = np.zeros([nNeurons])
@@ -318,14 +328,16 @@ def solveSystemStandard(ac,TS,runTime,stimInfoSpikes={},stimInfoCurrents= {},vec
 
         solveNeurons(ac,biasOverWriteList,TS)
 
-        solveSpikers(ac)
+        solveSpikers(ac,iteration)
 
-        for key in data:
-            data[key].append(deepcopy(ac[key]))
+        if iteration%samplingInterval == 0:
+            timeRecord.append(t)
+            for key in data:
+                data[key].append(deepcopy(ac[key]))
 
     for key in data:
         data[key] = np.array(data[key])
-    data["time"] = tv
+    data["time"] = np.array(timeRecord)
     return data
 
 def addBasicChannelToSystem(allChannelData,neuronId,channelInfo):
@@ -385,11 +397,11 @@ def genDefaultPlasticSynapseData(**kwargs):
     plasticDict = {
         "efficacy": 0, #p, unitless
         "conductanceGain": 0, #
-        "rate": 0.05, #ms
-        "gammaP": 0.68, #p per ms
-        "gammaD": 0.33, #p per ms
-        "thetaP": 0.4e-5, #Ca mol/L
-        "thetaD": 0.3e-5, #Ca mol/L
+        "rate": 0.01, #ms
+        "gammaP": 0.1, #p per ms
+        "gammaD": 0.01, #p per ms
+        "thetaP": 2e-5, #Ca mol/L
+        "thetaD": 1e-5, #Ca mol/L
     }
     for k,v in kwargs.items():
         plasticDict[k] = v 
@@ -423,7 +435,7 @@ def genNMDA_ion(TS,baseConductance,**plasticityKwargs):
             "Erev": 0,
             "conductance": baseConductance,
             "current":0,
-            "CaCurrent": 1,
+            "CaCurrent": 0,
             "gates":{
             "vGate1":genGate(-30,1/8,0.1,0.1,-1000,100),
             "vGate2":genOpenGate(),
@@ -439,7 +451,7 @@ def genNMDA_Ca(TS,baseConductance,**plasticityKwargs):
     timeScale = 100
     NMDA = {"name":"NMDAR",
                 "ion":"Cation",
-            "Erev": 100, #ECa is very high, could be up to 140
+            "Erev": 140, #ECa is very high, could be up to 140
             "conductance": baseConductance,
             "current":0,
             "CaCurrent": 1,
@@ -470,6 +482,8 @@ def addSpikerToSystem(ac,spkrDict,spikerPreNeuron):
     ac["spikerPreNeuron"].append(spikerPreNeuron)
     ac["spikerNeuronScale"].append(spkrDict["spikerNeuronScale"]) #0 for random, 1 for neuron based and random
     ac["spikerProbability"].append(spkrDict["spikerProbability"]) #set to 0 to remove random spiking
+    ac["spikerOutput"].append(0)
+    ac["spikeTrains"].append([])
 
 
 
@@ -512,11 +526,11 @@ def genSimData(neuronDict,spikerDict,synapseDict,TS):
     #I have been referring to neuron segments as "neurons", because initialy this was a single compartment simulation
     #However I should probably start referring to them as "segments"
     simulationData = {key:[] for key in genOpenGate().keys()}
-    listKeys = ["biasCurrents","CaEquilibriumVal","CaRemovalRate", #neuron (segment) properties
+    listKeys = ["biasCurrents","CaEquilibriumVal","CaRemovalRate","neuronName", #neuron (segment) properties
                 "postNeuron","channelPreSpiker","conductance","Erev","CaCurrent","inputDelay", #channel parameters
                 "efficacy","conductanceGain","rate","gammaP","gammaD","thetaP","thetaD", #plasticity parameters
                 "diffPostNeuron","diffPreNeuron","diffRate","current","CaChannelCurrent","name",#diffusion parameters
-                "spikerPreNeuron","spikerNeuronScale","spikerProbability"] #spiker parameters 
+                "spikerPreNeuron","spikerNeuronScale","spikerProbability","spikerOutput","spikeTrains"] #spiker parameters 
     valueKeys = ["nChannels","nDiffusiveConnections","nSpikers","nNeurons"]
 
     for key in listKeys:
@@ -537,6 +551,7 @@ def genSimData(neuronDict,spikerDict,synapseDict,TS):
                 simulationData["biasCurrents"].append(segmentInfo["bias"])
                 simulationData["CaEquilibriumVal"].append(segmentInfo["CaEquilibriumVal"])
                 simulationData["CaRemovalRate"].append(segmentInfo["CaRemovalRate"])
+                simulationData["neuronName"].append(neuronType)
 
 
     for spikerName,spikerVal in spikerDict.items():
@@ -597,7 +612,7 @@ def genSimData(neuronDict,spikerDict,synapseDict,TS):
                "maxDelayInt","inputDelay","nNeurons","nSpikers","spikerPreNeuron",
                ]
     
-    nonArrayKeys = ["nNeurons","maxDelayInt","nChannels","nDiffusiveConnections","name","nSpikers"]
+    nonArrayKeys = ["nNeurons","maxDelayInt","nChannels","nDiffusiveConnections","name","nSpikers","neuronName","spikeTrains"]
     for key in simulationData.keys():
         val = simulationData[key]
         if key in intKeys: arrDtype = np.int32
@@ -618,7 +633,7 @@ def genSimData(neuronDict,spikerDict,synapseDict,TS):
 
 class Neuron():
     def __init__(self,index,name,neuronType,AISchannels,AISbias,denderiteInfo={},dendriteMap=[],CaEquilibriumVal=0,CaRemovalRate=2):
-        neuronTypeToSynapseList = {"excitatory":["AMPA","NMDA"],#,
+        neuronTypeToSynapseList = {"excitatory":["AMPA","NMDA_ion","NMDA_Ca"],#,
                                    "inhibitory":["GABA"]}
         self.id = index
         self.name=name
@@ -634,7 +649,7 @@ class Neuron():
         
 class Spiker():
     def __init__(self,index,name,neuronType,spikeRate,TS):
-        neuronTypeToSynapseList = {"excitatory":["AMPA","NMDA"],#,"NMDA"
+        neuronTypeToSynapseList = {"excitatory":["AMPA","NMDA_ion","NMDA_Ca"],#,"NMDA"
                                    "inhibitory":["GABA"]}
         
         self.id = index
