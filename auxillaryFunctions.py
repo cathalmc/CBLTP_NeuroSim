@@ -233,8 +233,6 @@ def solveSpikers(ac,iteration):
         spikeBuffer[i][writeIndex[i]] = spikeOutput         
         writeIndex[i] = (writeIndex[i]+1)%ac["maxDelayInt"]
         ac["spikerOutput"][i] = spikeOutput #This is just a recording variable, not used in any caclulations
-        if spikeOutput>0:
-            ac["spikeTrains"][i].append(iteration)
 
 
 def genSpikeStimArrays(stimInfoSpikes):
@@ -329,6 +327,10 @@ def solveSystemStandard(ac,TS,runTime,stimInfoSpikes={},stimInfoCurrents= {},vec
         solveNeurons(ac,biasOverWriteList,TS)
 
         solveSpikers(ac,iteration)
+
+        for i in range(ac["nSpikers"]):
+            if ac["spikerOutput"][i]>0:
+                ac["spikeTrains"][i].append(iteration)
 
         if iteration%samplingInterval == 0:
             timeRecord.append(t)
