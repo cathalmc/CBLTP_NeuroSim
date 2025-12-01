@@ -541,6 +541,7 @@ def genSimData(neuronDict,spikerDict,synapseDict,TS):
                 "diffPostNeuron","diffPreNeuron","diffRate","current","CaChannelCurrent","name",#diffusion parameters
                 "spikerPreNeuron","spikerNeuronScale","spikerProbability","spikerOutput","spikeTrains"] #spiker parameters 
     valueKeys = ["nChannels","nDiffusiveConnections","nSpikers","nSegments","nNeuralSpikers"]
+    indexMaps = {}
 
     for key in listKeys:
         simulationData[key] = []
@@ -548,6 +549,7 @@ def genSimData(neuronDict,spikerDict,synapseDict,TS):
         simulationData[key] = 0
 
     neuronPopToGlobalSegmentMap,neuronPopToSpiker = getNeuronAndSpikerMaps(neuronDict,spikerDict)
+    indexMaps["neuronPopToGlobalSegmentMap"],indexMaps["neuronPopToSpiker"] = neuronPopToGlobalSegmentMap, neuronPopToSpiker
 
     for neuronType,neurons in neuronDict.items():
         for neuron in neurons:
@@ -594,7 +596,8 @@ def genSimData(neuronDict,spikerDict,synapseDict,TS):
             maxDelayInt = max(delayInt,maxDelayInt)
             assert 0<=preSynapticSpikerIndex<nSpikers and 0<=postSynapticSegmentIndex<nSegments, f"edge out of range {preSynapticSpikerIndex},{postSynapticSegmentIndex}"
             addSynapseToSystem(preSynapticSpikerIndex,postSynapticSegmentIndex,synapseData,delayInt,simulationData)
-            
+    
+    indexMaps["connectionToChannelMap"] = connectionToChannelMap
 
 
     #Diffusive connections
@@ -638,7 +641,9 @@ def genSimData(neuronDict,spikerDict,synapseDict,TS):
             print(f"Warning {key} is not a list or tuple") 
     
     simulationData["exponent"] = np.array(simulationData["exponent"],dtype=np.int8)
-    return simulationData,connectionToChannelMap
+    simulationData["indexMaps"] = indexMaps
+    
+    return simulationData
 
 
 class Neuron():
