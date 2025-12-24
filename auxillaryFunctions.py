@@ -540,7 +540,7 @@ def genSimData(neuronDict,spikerDict,synapseDict,TS):
                 "efficacy","conductanceGain","rate","gammaP","gammaD","thetaP","thetaD", #plasticity parameters
                 "diffPostNeuron","diffPreNeuron","diffRate","current","CaChannelCurrent","name",#diffusion parameters
                 "spikerPreNeuron","spikerNeuronScale","spikerProbability","spikerOutput","spikeTrains"] #spiker parameters 
-    valueKeys = ["nChannels","nDiffusiveConnections","nSpikers","nSegments","nNeuralSpikers"]
+    valueKeys = ["nChannels","nDiffusiveConnections","nSpikers","nSegments","nNeuralSpikers"] #nSegments used to be called nNeurons
     indexMaps = {}
 
     for key in listKeys:

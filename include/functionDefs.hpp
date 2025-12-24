@@ -11,3 +11,4 @@ py::object testFunc(py::array_t<int> testIntVal,
                     );
 
 py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,  float timeStep,int nIterations,int samplingInterval);
+py::object solveNeuralSystemSingleThread(py::dict systemInfo,py::dict recordingInfo,  float timeStep,int nIterations,int samplingInterval);
