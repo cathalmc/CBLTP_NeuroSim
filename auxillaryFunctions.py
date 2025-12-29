@@ -335,9 +335,9 @@ def solveSystemStandard(ac,TS,runTime,stimInfoSpikes={},stimInfoCurrents= {},vec
 
         solveSpikers(ac,iteration)
 
-        for i in range(ac["nSpikers"]):
-            if ac["spikerOutput"][i]>0:
-                ac["spikeTrains"][i].append(iteration)
+        # for i in range(ac["nSpikers"]):
+        #     if ac["spikerOutput"][i]>0:
+        #         ac["spikeTrains"][i].append(iteration)
 
         if iteration%samplingInterval == 0:
             timeRecord.append(t)
@@ -492,7 +492,7 @@ def addSpikerToSystem(ac,spkrDict,spikerPreNeuron):
     ac["spikerNeuronScale"].append(spkrDict["spikerNeuronScale"]) #0 for random, 1 for neuron based and random
     ac["spikerProbability"].append(spkrDict["spikerProbability"]) #set to 0 to remove random spiking
     ac["spikerOutput"].append(0)
-    ac["spikeTrains"].append([])
+    #ac["spikeTrains"].append([])
 
 
 
@@ -539,7 +539,7 @@ def genSimData(neuronDict,spikerDict,synapseDict,TS):
                 "postNeuron","channelPreSpiker","conductance","Erev","CaCurrent","inputDelay", #channel parameters
                 "efficacy","conductanceGain","rate","gammaP","gammaD","thetaP","thetaD", #plasticity parameters
                 "diffPostNeuron","diffPreNeuron","diffRate","current","CaChannelCurrent","name",#diffusion parameters
-                "spikerPreNeuron","spikerNeuronScale","spikerProbability","spikerOutput","spikeTrains"] #spiker parameters 
+                "spikerPreNeuron","spikerNeuronScale","spikerProbability","spikerOutput"] #spiker parameters 
     valueKeys = ["nChannels","nDiffusiveConnections","nSpikers","nSegments","nNeuralSpikers"] #nSegments used to be called nNeurons
     indexMaps = {}
 
@@ -625,7 +625,7 @@ def genSimData(neuronDict,spikerDict,synapseDict,TS):
                "maxDelayInt","inputDelay","nSegments","nSpikers","spikerPreNeuron",
                ]
     
-    nonArrayKeys = ["nSegments","nNeuralSpikers","maxDelayInt","nChannels","nDiffusiveConnections","name","nSpikers","neuronName","spikeTrains"]
+    nonArrayKeys = ["nSegments","nNeuralSpikers","maxDelayInt","nChannels","nDiffusiveConnections","name","nSpikers","neuronName"]
     for key in simulationData.keys():
         val = simulationData[key]
         if key in intKeys: arrDtype = np.int32
