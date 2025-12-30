@@ -228,7 +228,7 @@ def solveNeurons(ac,biasOverWriteList,TS):
 
 def solveSpikers(ac,iteration):
     writeIndex = ac["writeIndex"]
-    spikerPreNeuron = ac["spikerPreNeuron"] #this is the neuron that gets checked 
+    spikerPreNeuron = ac["spikerPreSegment"] #this is the neuron that gets checked 
     spikerNeuronScale = ac["spikerNeuronScale"] #0 or 1
     voltages = ac["voltages"]
     spikeBuffer = ac["spikeBuffer"]
@@ -482,19 +482,16 @@ def genGABA(TS,baseConductance,**plasticityKwargs):
     return GABA
 
 
-
-def addSpikerToSystem(ac,spkrDict,spikerPreNeuron):
+def addSpikerToSystem(ac,spkrDict,spikerPreSegment):
     #all the stuff normally realting to neural spiking gets added here
     #spikes can be triggered either randomly and/or by spike thresholding in the presynaptic neuron
     #the simulation code checks for both conditions. To have only random spiking, choose an aribitrary presynaptic neuron (e.g. neuron 0),
     #and set the spikeNeuronScale = 0. To have only neuron spiking, set spikerProbability to 0.
-    ac["spikerPreNeuron"].append(spikerPreNeuron)
+    ac["spikerPreSegment"].append(spikerPreSegment)
     ac["spikerNeuronScale"].append(spkrDict["spikerNeuronScale"]) #0 for random, 1 for neuron based and random
     ac["spikerProbability"].append(spkrDict["spikerProbability"]) #set to 0 to remove random spiking
     ac["spikerOutput"].append(0)
     #ac["spikeTrains"].append([])
-
-
 
 
 def addDiffusiveConnection(allChannelData,preNeuron,postNeuron,diffusionRate):
@@ -508,16 +505,21 @@ def getNeuronAndSpikerMaps(neuronDict,spikerDict):
     spikerIndex = 0
     neuronPopToGlobalSegmentMap = {} #maps neurons onto the compartments containing their channels.
                                     #This is important for mapping synpatic currents onto compartments
-    neuronPopToSpiker = {} #maps neurons onto their output spikers 
-    #We can then take a synapse and use it to map output spikers to dendritic segments
+    neuronPopToSpiker = {} #maps neurons onto their output spikers. Note this is NEURONs as a whole, not segments, and is used for connecting synapses
+    spikerToPreSegment = {} #maps the spiker to the presynaptic segment that is used to produce the spike
+
 
     for neuronType,neurons in neuronDict.items():
         neuronPopToGlobalSegmentMap[neuronType] = {}
         neuronPopToSpiker[neuronType] = {}
+        spikerToPreSegment[neuronType] = {}
+         
         for neuron in neurons:
             neuronPopToGlobalSegmentMap[neuronType][neuron.id] = {}
             neuronPopToSpiker[neuronType][neuron.id] = spikerIndex
             spikerIndex +=1
+            #the segment whos voltage is used to trigger a spike is the 0th segment. 
+            spikerToPreSegment[neuronType][neuron.id] = segmentIndex 
             for segment,segmentInfo in neuron.segments.items():
                 neuronPopToGlobalSegmentMap[neuronType][neuron.id][segment] = segmentIndex
                 segmentIndex+=1
@@ -529,9 +531,11 @@ def getNeuronAndSpikerMaps(neuronDict,spikerDict):
             spikerIndex+=1
                 
 
-    return neuronPopToGlobalSegmentMap,neuronPopToSpiker
+    return neuronPopToGlobalSegmentMap,neuronPopToSpiker,spikerToPreSegment
+
 
 def genSimData(neuronDict,spikerDict,synapseDict,TS):
+    #NOTE: 30/12/26 I am renaming spikerPreNeuron to spikerPreSegment because its more accurate and spikerPreNeuron was being used incorrectly
     #I have been referring to neuron segments as "neurons", because initialy this was a single compartment simulation
     #However I should probably start referring to them as "segments"
     simulationData = {key:[] for key in genOpenGate().keys()}
@@ -539,7 +543,7 @@ def genSimData(neuronDict,spikerDict,synapseDict,TS):
                 "postNeuron","channelPreSpiker","conductance","Erev","CaCurrent","inputDelay", #channel parameters
                 "efficacy","conductanceGain","rate","gammaP","gammaD","thetaP","thetaD", #plasticity parameters
                 "diffPostNeuron","diffPreNeuron","diffRate","current","CaChannelCurrent","name",#diffusion parameters
-                "spikerPreNeuron","spikerNeuronScale","spikerProbability","spikerOutput"] #spiker parameters 
+                "spikerPreSegment","spikerNeuronScale","spikerProbability","spikerOutput"] #spiker parameters 
     valueKeys = ["nChannels","nDiffusiveConnections","nSpikers","nSegments","nNeuralSpikers"] #nSegments used to be called nNeurons
     indexMaps = {}
 
@@ -548,13 +552,14 @@ def genSimData(neuronDict,spikerDict,synapseDict,TS):
     for key in valueKeys:
         simulationData[key] = 0
 
-    neuronPopToGlobalSegmentMap,neuronPopToSpiker = getNeuronAndSpikerMaps(neuronDict,spikerDict)
-    indexMaps["neuronPopToGlobalSegmentMap"],indexMaps["neuronPopToSpiker"] = neuronPopToGlobalSegmentMap, neuronPopToSpiker
+    neuronPopToGlobalSegmentMap,neuronPopToSpiker,spikerToPreSegment = getNeuronAndSpikerMaps(neuronDict,spikerDict)
+    indexMaps["neuronPopToGlobalSegmentMap"],indexMaps["neuronPopToSpikerMap"] = neuronPopToGlobalSegmentMap, neuronPopToSpiker
+    indexMaps["spikerToPreSegmentMap"] = spikerToPreSegment
 
     for neuronType,neurons in neuronDict.items():
         for neuron in neurons:
-            globalSpikerId = neuronPopToSpiker[neuron.name][neuron.id]
-            addSpikerToSystem(simulationData,neuron.spiker,globalSpikerId)
+            segmentId = spikerToPreSegment[neuron.name][neuron.id] #the segment whos voltage is used to trigger a spike 
+            addSpikerToSystem(simulationData,neuron.spiker,segmentId)
             simulationData["nNeuralSpikers"] +=1
             for segment,segmentInfo in neuron.segments.items():
                 for channelName,channelData in segmentInfo["channels"].items():
@@ -571,7 +576,7 @@ def genSimData(neuronDict,spikerDict,synapseDict,TS):
             addSpikerToSystem(simulationData,spkr.spiker,0)
 
     nSegments = len(simulationData["biasCurrents"])
-    nSpikers = len(simulationData["spikerPreNeuron"])
+    nSpikers = len(simulationData["spikerPreSegment"])
     simulationData["nSegments"] = nSegments
     simulationData["nSpikers"] = nSpikers
     #############################################################################################
@@ -588,8 +593,8 @@ def genSimData(neuronDict,spikerDict,synapseDict,TS):
             preLocalIndex,postLocalIndex = connection["pre"],connection["post"]
             preName,postName = connection["preName"],connection["postName"]
             segmentIndex = connection["segmentIndex"]
-            preSynapticSpikerIndex = neuronPopToSpiker[preName][preLocalIndex]
-            postSynapticSegmentIndex = neuronPopToGlobalSegmentMap[postName][postLocalIndex][segmentIndex]
+            preSynapticSpikerIndex = neuronPopToSpiker[preName][preLocalIndex] #pick the spiker of the pre-synaptic neuron
+            postSynapticSegmentIndex = neuronPopToGlobalSegmentMap[postName][postLocalIndex][segmentIndex] #have it connect to post synaptic segment
             synapseData = connection["synapse"]
             delay = connection["delay"] #in ms
             delayInt = int(np.ceil(delay/TS))
@@ -622,7 +627,7 @@ def genSimData(neuronDict,spikerDict,synapseDict,TS):
 
     intKeys = ["channelPreSpiker","postNeuron", "nChannels","diffPostNeuron",
                "diffPreNeuron","nDiffusiveConnections","writeIndex",
-               "maxDelayInt","inputDelay","nSegments","nSpikers","spikerPreNeuron",
+               "maxDelayInt","inputDelay","nSegments","nSpikers","spikerPreSegment",
                ]
     
     nonArrayKeys = ["nSegments","nNeuralSpikers","maxDelayInt","nChannels","nDiffusiveConnections","name","nSpikers","neuronName"]

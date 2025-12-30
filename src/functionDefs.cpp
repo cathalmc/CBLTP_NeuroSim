@@ -141,8 +141,8 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
     float *CaRemovalRate = (float*)(CaRemovalRateBuffer.ptr);
 
     //Spiker data
-    auto spikerPreNeuronBuffer = systemInfo["spikerPreNeuron"].cast<py::array_t<int>>().request();
-    int *spikerPreNeuron = (int*)(spikerPreNeuronBuffer.ptr);
+    auto spikerPreSegmentBuffer = systemInfo["spikerPreSegment"].cast<py::array_t<int>>().request();
+    int *spikerPreSegment = (int*)(spikerPreSegmentBuffer.ptr);
     auto spikerNeuronScaleBuffer = systemInfo["spikerNeuronScale"].cast<py::array_t<float>>().request();
     float *spikerNeuronScale = (float*)(spikerNeuronScaleBuffer.ptr);
     auto spikerProbabilityBuffer = systemInfo["spikerProbability"].cast<py::array_t<float>>().request();
@@ -553,7 +553,8 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
 
                 // 2) Spike term (branchless compare; keep your scale semantics)
                 // If spikerNeuronScale is a 0/1 gate, you can fold this to a bit op; here we keep your multiply.
-                float spikeTerm = spikerNeuronScale[idx] * (float)(voltages[idx] > vThreshold);
+                long long preSynapticNeuronIndex = spikerPreSegment[idx];
+                float spikeTerm = spikerNeuronScale[idx] * (float)(voltages[preSynapticNeuronIndex] > vThreshold);
                 bool spikeOutput = (spikeTerm != 0.0f);
 
                 // 3) Write into ring buffer (use both strides to respect NumPy layout)
@@ -670,8 +671,8 @@ py::object solveNeuralSystemSingleThread(py::dict systemInfo,py::dict recordingI
     float *CaRemovalRate = (float*)(CaRemovalRateBuffer.ptr);
 
     //Spiker data
-    auto spikerPreNeuronBuffer = systemInfo["spikerPreNeuron"].cast<py::array_t<int>>().request();
-    int *spikerPreNeuron = (int*)(spikerPreNeuronBuffer.ptr);
+    auto spikerPreSegmentBuffer = systemInfo["spikerPreSegment"].cast<py::array_t<int>>().request();
+    int *spikerPreSegment = (int*)(spikerPreSegmentBuffer.ptr);
     auto spikerNeuronScaleBuffer = systemInfo["spikerNeuronScale"].cast<py::array_t<float>>().request();
     float *spikerNeuronScale = (float*)(spikerNeuronScaleBuffer.ptr);
     auto spikerProbabilityBuffer = systemInfo["spikerProbability"].cast<py::array_t<float>>().request();
@@ -1082,7 +1083,8 @@ py::object solveNeuralSystemSingleThread(py::dict systemInfo,py::dict recordingI
 
                 // 2) Spike term (branchless compare; keep your scale semantics)
                 // If spikerNeuronScale is a 0/1 gate, you can fold this to a bit op; here we keep your multiply.
-                float spikeTerm = spikerNeuronScale[idx] * (float)(voltages[idx] > vThreshold);
+                long long preSynapticNeuronIndex = spikerPreSegment[idx];
+                float spikeTerm = spikerNeuronScale[idx] * (float)(voltages[preSynapticNeuronIndex] > vThreshold);
                 bool spikeOutput = (spikeTerm != 0.0f);
 
                 // 3) Write into ring buffer (use both strides to respect NumPy layout)
