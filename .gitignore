@@ -5,3 +5,4 @@
 *.pyd
 *.pdb
 *.pyc
+/outcmaes
