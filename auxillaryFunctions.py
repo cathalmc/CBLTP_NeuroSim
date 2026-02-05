@@ -352,7 +352,7 @@ def solveSystemStandard(ac,TS,runTime,stimInfoSpikes={},stimInfoCurrents= {},vec
 def addBasicChannelToSystem(allChannelData,neuronId,channelInfo):
     #This is the minimum base function for adding a channel-like mechanism to the system
     allChannelData["nChannels"]+=1  #not sure if i should do this at the start or end, probably doesnt matter
-    allChannelData["name"].append(channelInfo["name"])
+    allChannelData["channelName"].append(channelInfo["name"])
     allChannelData["postNeuron"].append(neuronId)
     allChannelData["channelPreSpiker"].append(0) #default is 0 if nothing else is provided later
     zeroKeys = ["efficacy","conductanceGain","rate","gammaP","gammaD","thetaP","thetaD",
@@ -542,7 +542,7 @@ def genSimData(neuronDict,spikerDict,synapseDict,TS):
     listKeys = ["biasCurrents","CaEquilibriumVal","CaRemovalRate","neuronName", #neuron (segment) properties
                 "postNeuron","channelPreSpiker","conductance","Erev","CaCurrent","inputDelay", #channel parameters
                 "efficacy","conductanceGain","rate","gammaP","gammaD","thetaP","thetaD", #plasticity parameters
-                "diffPostNeuron","diffPreNeuron","diffRate","current","CaChannelCurrent","name",#diffusion parameters
+                "diffPostNeuron","diffPreNeuron","diffRate","current","CaChannelCurrent","channelName",#diffusion parameters
                 "spikerPreSegment","spikerNeuronScale","spikerProbability","spikerOutput"] #spiker parameters 
     valueKeys = ["nChannels","nDiffusiveConnections","nSpikers","nSegments","nNeuralSpikers"] #nSegments used to be called nNeurons
     indexMaps = {}
@@ -568,7 +568,7 @@ def genSimData(neuronDict,spikerDict,synapseDict,TS):
                 simulationData["biasCurrents"].append(segmentInfo["bias"])
                 simulationData["CaEquilibriumVal"].append(segmentInfo["CaEquilibriumVal"])
                 simulationData["CaRemovalRate"].append(segmentInfo["CaRemovalRate"])
-                simulationData["neuronName"].append(neuronType)
+                simulationData["neuronName"].append(f"{neuronType}_{neuron.id}_{segment}")
 
 
     for spikerName,spikerVal in spikerDict.items():
@@ -630,7 +630,7 @@ def genSimData(neuronDict,spikerDict,synapseDict,TS):
                "maxDelayInt","inputDelay","nSegments","nSpikers","spikerPreSegment",
                ]
     
-    nonArrayKeys = ["nSegments","nNeuralSpikers","maxDelayInt","nChannels","nDiffusiveConnections","name","nSpikers","neuronName"]
+    nonArrayKeys = ["nSegments","nNeuralSpikers","maxDelayInt","nChannels","nDiffusiveConnections","channelName","nSpikers","neuronName"]
     for key in simulationData.keys():
         val = simulationData[key]
         if key in intKeys: arrDtype = np.int32
@@ -679,11 +679,13 @@ class Spiker():
         self.spiker = {"spikerNeuronScale":0,"spikerProbability":spikeRate*TS/1000.0}
 
 
-def createSynapses(prePopulation,postPopulation,nSynapses,baseConductance,delay,TS,edgeList=None):
-    synapses = {"AMPA":genAMPA(TS,baseConductance,conductanceGain=0),
-                "NMDA_ion":genNMDA_ion(TS,baseConductance,conductanceGain=0),
-                "NMDA_Ca":genNMDA_Ca(TS,baseConductance,conductanceGain=0),
-                "GABA":genGABA(TS,baseConductance,conductanceGain=0)}
+def createSynapses(prePopulation,postPopulation,nSynapses,baseConductance,delay,TS,synapses=None, edgeList=None):
+    if synapses == None:
+        #default synapses
+        synapses = {"AMPA":genAMPA(TS,baseConductance,conductanceGain=0),
+                    "NMDA_ion":genNMDA_ion(TS,baseConductance,conductanceGain=0),
+                    "NMDA_Ca":genNMDA_Ca(TS,baseConductance,conductanceGain=0),
+                    "GABA":genGABA(TS,baseConductance,conductanceGain=0)}
     
     if edgeList is None:
         nPre,nPost = len(prePopulation),len(postPopulation)
