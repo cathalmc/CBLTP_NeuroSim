@@ -1,0 +1,1 @@
+Next step is to tune synaptic plasticity in the full STN-GPe circuit using the 2026_Feb21 notebook
