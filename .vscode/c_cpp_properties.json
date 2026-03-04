@@ -9,7 +9,9 @@
                 "C:\\Users\\catha\\anaconda3\\envs\\Morpho25\\Lib\\site-packages\\pybind11\\include",
                 "C:\\Users\\catha\\anaconda3\\envs\\Morpho25\\include",
                 "C:\\Users\\Cathal\\miniconda3\\envs\\Morpho2023\\Lib\\site-packages\\pybind11\\include",
-                "C:\\Users\\Cathal\\miniconda3\\envs\\Morpho2023\\include"
+                "C:\\Users\\Cathal\\miniconda3\\envs\\Morpho2023\\include",
+                "/Users/cathal/miniconda3/envs/morphoEnv/include",
+                "/Users/cathal/miniconda3/envs/morphoEnv/lib/python3.13/site-packages/pybind11/include"
             ],
             "defines": [
                 "_DEBUG",

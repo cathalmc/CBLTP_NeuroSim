@@ -1,5 +1,4 @@
 #include "functionDefs.hpp"
-#include <execution>
 #include <chrono>
 #include <random>
 #include <algorithm>
@@ -284,9 +283,7 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
     
     std::vector<int> indices(nChannels);
     std::iota(indices.begin(), indices.end(), 0); // Fill it with consecutive numbers
-    //auto executionPolicy = std::execution::seq;
-    // std::for_each(executionPolicy, indices.begin(), indices.end(), [&](int connInd)  {
-    // });
+  
 
     //Optimizations
     omp_set_num_threads(28);
@@ -307,7 +304,6 @@ py::object solveNeuralSystem(py::dict systemInfo,py::dict recordingInfo,
 
 
 
-    auto executionPolicy = std::execution::par_unseq; //par_unseq
     double initializationT,channelT,accumulateT,diffusiveT, spikerT,neuronT, recordingT;
     initializationT = 0.0, channelT = 0.0, accumulateT = 0.0, diffusiveT = 0.0, spikerT = 0.0, neuronT = 0.0, recordingT = 0.0;
     auto start = std::chrono::high_resolution_clock::now();
@@ -819,7 +815,6 @@ py::object solveNeuralSystemSingleThread(py::dict systemInfo,py::dict recordingI
     // });
 
     //Optimizations
-    omp_set_num_threads(28);
     
     const int mask = maxDelayInt - 1;
     // A changing base seed for RNG reproducibility across time steps if desired
@@ -836,8 +831,6 @@ py::object solveNeuralSystemSingleThread(py::dict systemInfo,py::dict recordingI
     for (int c=0;c<nChannels;++c) chanIndexByNeuron[cursor[postNeuron[c]]++] = c;
 
 
-
-    auto executionPolicy = std::execution::par_unseq; //par_unseq
     double initializationT,channelT,accumulateT,diffusiveT, spikerT,neuronT, recordingT;
     initializationT = 0.0, channelT = 0.0, accumulateT = 0.0, diffusiveT = 0.0, spikerT = 0.0, neuronT = 0.0, recordingT = 0.0;
     auto start = std::chrono::high_resolution_clock::now();
