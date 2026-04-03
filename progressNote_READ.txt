@@ -1,1 +1,3 @@
 Next step is to tune synaptic plasticity in the full STN-GPe circuit using the 2026_Feb21 notebook
+My thought process was that we're not going to be able to figure out useful plasticity parameters from isolated simulations because in the full network spiking is way more correlated
+So lets just try to fit plasticity for the full net
