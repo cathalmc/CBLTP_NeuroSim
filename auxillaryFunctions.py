@@ -555,21 +555,28 @@ def genSimData(neuronDict,spikerDict,synapseDict,TS):
     neuronPopToGlobalSegmentMap,neuronPopToSpiker,spikerToPreSegment = getNeuronAndSpikerMaps(neuronDict,spikerDict)
     indexMaps["neuronPopToGlobalSegmentMap"],indexMaps["neuronPopToSpikerMap"] = neuronPopToGlobalSegmentMap, neuronPopToSpiker
     indexMaps["spikerToPreSegmentMap"] = spikerToPreSegment
-
+    neuronToChannelMap = {}
     for neuronType,neurons in neuronDict.items():
+        neuronToChannelMap.setdefault(neuronType,{})
         for neuron in neurons:
-            segmentId = spikerToPreSegment[neuron.name][neuron.id] #the segment whos voltage is used to trigger a spike 
-            addSpikerToSystem(simulationData,neuron.spiker,segmentId)
+            AISid = spikerToPreSegment[neuron.name][neuron.id] #the segment whos voltage is used to trigger a spike 
+            addSpikerToSystem(simulationData,neuron.spiker,AISid)
             simulationData["nNeuralSpikers"] +=1
+            neuronToChannelMap[neuronType].setdefault(AISid,{})
+
             for segment,segmentInfo in neuron.segments.items():
+                neuronToChannelMap[neuronType][AISid].setdefault(segment,{})
                 for channelName,channelData in segmentInfo["channels"].items():
+                    neuronToChannelMap[neuronType][AISid][segment][channelName] = simulationData['nChannels'] #nChannels is updated whenever a channel is added
                     globalId = neuronPopToGlobalSegmentMap[neuron.name][neuron.id][segment]
                     addBasicChannelToSystem(simulationData,globalId,channelData)
+
                 simulationData["biasCurrents"].append(segmentInfo["bias"])
                 simulationData["CaEquilibriumVal"].append(segmentInfo["CaEquilibriumVal"])
                 simulationData["CaRemovalRate"].append(segmentInfo["CaRemovalRate"])
                 simulationData["neuronName"].append(f"{neuronType}_{neuron.id}_{segment}")
 
+    indexMaps['neuronToChannelMap'] = neuronToChannelMap
 
     for spikerName,spikerVal in spikerDict.items():
         for spkr in spikerVal:
