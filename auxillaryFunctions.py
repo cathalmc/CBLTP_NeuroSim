@@ -399,7 +399,7 @@ def genOpenGate():
 def genSynapseGate(xt1,TS):
     xt0 = TS
     xt1 = xt1-xt0
-    return genGate(0.5,100,xt0,xt1,0.5,-100)
+    return genGate(0.5,vKi=50,tau0=xt0,tau1=xt1,th=0.5,tkInv=-50,exponent=2)
 
 
 def genDefaultPlasticSynapseData(**kwargs):
@@ -719,7 +719,7 @@ def createSynapses(prePopulation,postPopulation,nSynapses,baseConductance,delay,
 def stimSynapse(stimInfoSpikes,synapsesToStim,startTime,stopTime,TS):
     #another option is to have a stim value as well. We assume here stim value is 1, but
     #if we could set it to 0 we could switch off ion channels
-    st0,st1 = int(startTime/TS),int(stopTime/TS)
+    st0,st1 = int(np.round(startTime/TS)),int(np.round(stopTime/TS))
     times = [i for i in range(st0,st1)]
     for t in times:
         for syn in synapsesToStim:
@@ -731,7 +731,7 @@ def stimSynapse(stimInfoSpikes,synapsesToStim,startTime,stopTime,TS):
 def stimBiasCurrent(stimInfoBiasCurrent,segmentsToStim,currentValue, startTime,stopTime,TS):
     #another option is to have a stim value as well. We assume here stim value is 1, but
     #if we could set it to 0 we could switch off ion channels
-    st0,st1 = int(startTime/TS),int(stopTime/TS)
+    st0,st1 = int(np.round(startTime/TS)),int(np.round(stopTime/TS))
     times = [i for i in range(st0,st1)]
     for t in times:
         for seg in segmentsToStim:
