@@ -1,0 +1,54 @@
+{
+  "name": "genericKv",
+  "ion": "K",
+  "Erev": -80,
+  "conductance": 12.0,
+  "CaCurrent": 0,
+  "gates": {
+    "vGate1": {
+      "x": 0.0,
+      "vHalf": -25.0,
+      "vKi": 0.125,
+      "tau0": 2.0,
+      "tau1": 10.0,
+      "th": 7.105427357601002e-15,
+      "tkInv": -0.125,
+      "exponent": 4.0,
+      "minOpenness": 0.2
+    },
+    "vGate2": {
+      "x": 1,
+      "vHalf": -1000,
+      "vKi": 1000,
+      "tau0": 100,
+      "tau1": 1000,
+      "th": 0,
+      "tkInv": 0,
+      "exponent": 1,
+      "minOpenness": 0
+    },
+    "CaGate": {
+      "x": 1,
+      "vHalf": -1000,
+      "vKi": 1000,
+      "tau0": 100,
+      "tau1": 1000,
+      "th": 0,
+      "tkInv": 0,
+      "exponent": 1,
+      "minOpenness": 0
+    },
+    "spikeGate": {
+      "x": 1,
+      "vHalf": -1000,
+      "vKi": 1000,
+      "tau0": 100,
+      "tau1": 1000,
+      "th": 0,
+      "tkInv": 0,
+      "exponent": 1,
+      "minOpenness": 0
+    }
+  },
+  "metadata": {}
+}

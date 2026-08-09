@@ -1,0 +1,54 @@
+{
+  "name": "Nav1.6",
+  "ion": "Na",
+  "Erev": 60,
+  "conductance": 24.0,
+  "CaCurrent": 0,
+  "gates": {
+    "vGate1": {
+      "x": 0.0,
+      "vHalf": -15,
+      "vKi": 0.2,
+      "tau0": 0.4,
+      "tau1": 1,
+      "th": -10,
+      "tkInv": -0.1,
+      "exponent": 3,
+      "minOpenness": 0
+    },
+    "vGate2": {
+      "x": 0.0,
+      "vHalf": -55,
+      "vKi": -0.14285714285714285,
+      "tau0": 1,
+      "tau1": 10,
+      "th": -20,
+      "tkInv": -0.1,
+      "exponent": 1,
+      "minOpenness": 0.01
+    },
+    "CaGate": {
+      "x": 1,
+      "vHalf": -1000,
+      "vKi": 1000,
+      "tau0": 100,
+      "tau1": 1000,
+      "th": 0,
+      "tkInv": 0,
+      "exponent": 1,
+      "minOpenness": 0
+    },
+    "spikeGate": {
+      "x": 1,
+      "vHalf": -1000,
+      "vKi": 1000,
+      "tau0": 100,
+      "tau1": 1000,
+      "th": 0,
+      "tkInv": 0,
+      "exponent": 1,
+      "minOpenness": 0
+    }
+  },
+  "metadata": {}
+}

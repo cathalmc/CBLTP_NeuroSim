@@ -559,15 +559,16 @@ def genSimData(neuronDict,spikerDict,synapseDict,TS):
     for neuronType,neurons in neuronDict.items():
         neuronToChannelMap.setdefault(neuronType,{})
         for neuron in neurons:
-            AISid = spikerToPreSegment[neuron.name][neuron.id] #the segment whos voltage is used to trigger a spike 
+            neuronInd = neuron.id
+            AISid = spikerToPreSegment[neuron.name][neuronInd] #the segment whos voltage is used to trigger a spike 
             addSpikerToSystem(simulationData,neuron.spiker,AISid)
             simulationData["nNeuralSpikers"] +=1
-            neuronToChannelMap[neuronType].setdefault(AISid,{})
+            neuronToChannelMap[neuronType].setdefault(neuronInd,{})
 
             for segment,segmentInfo in neuron.segments.items():
-                neuronToChannelMap[neuronType][AISid].setdefault(segment,{})
+                neuronToChannelMap[neuronType][neuronInd].setdefault(segment,{})
                 for channelName,channelData in segmentInfo["channels"].items():
-                    neuronToChannelMap[neuronType][AISid][segment][channelName] = simulationData['nChannels'] #nChannels is updated whenever a channel is added
+                    neuronToChannelMap[neuronType][neuronInd][segment][channelName] = simulationData['nChannels'] #nChannels is updated whenever a channel is added
                     globalId = neuronPopToGlobalSegmentMap[neuron.name][neuron.id][segment]
                     addBasicChannelToSystem(simulationData,globalId,channelData)
 
@@ -596,17 +597,21 @@ def genSimData(neuronDict,spikerDict,synapseDict,TS):
     for synapseGroupName,synapseGroupData in synapseDict.items():
         connectionToChannelMap[synapseGroupName] = {}
         for connInd,connection in enumerate(synapseGroupData):
-            connectionToChannelMap[synapseGroupName][connInd] = simulationData["nChannels"]
+            synapseData = connection["synapse"]
+            synapseName = synapseData['name']
+            connectionToChannelMap[synapseGroupName].setdefault(synapseName,{})
+            connectionToChannelMap[synapseGroupName][synapseName][connInd] = simulationData["nChannels"]
             preLocalIndex,postLocalIndex = connection["pre"],connection["post"]
             preName,postName = connection["preName"],connection["postName"]
             segmentIndex = connection["segmentIndex"]
             preSynapticSpikerIndex = neuronPopToSpiker[preName][preLocalIndex] #pick the spiker of the pre-synaptic neuron
             postSynapticSegmentIndex = neuronPopToGlobalSegmentMap[postName][postLocalIndex][segmentIndex] #have it connect to post synaptic segment
-            synapseData = connection["synapse"]
+            
             delay = connection["delay"] #in ms
             delayInt = int(np.ceil(delay/TS))
             maxDelayInt = max(delayInt,maxDelayInt)
             assert 0<=preSynapticSpikerIndex<nSpikers and 0<=postSynapticSegmentIndex<nSegments, f"edge out of range {preSynapticSpikerIndex},{postSynapticSegmentIndex}"
+            neuronToChannelMap[postName][postLocalIndex][segmentIndex][synapseName] = simulationData['nChannels'] 
             addSynapseToSystem(preSynapticSpikerIndex,postSynapticSegmentIndex,synapseData,delayInt,simulationData)
     
     indexMaps["connectionToChannelMap"] = connectionToChannelMap
@@ -625,7 +630,7 @@ def genSimData(neuronDict,spikerDict,synapseDict,TS):
     nextPower2 = lambda x: int(2**(np.ceil(np.log2(x))))
     maxDelayInt = nextPower2(maxDelayInt)
     simulationData["maxDelayInt"] = maxDelayInt
-    simulationData["voltages"] = -75*np.ones(nSegments,dtype = np.float32) + 1*np.linspace(-10,20,nSegments, dtype=np.float32)
+    simulationData["voltages"] = -75*np.ones(nSegments,dtype = np.float32) #+ 1*np.linspace(-10,20,nSegments, dtype=np.float32)
     simulationData["calciumVals"] = np.zeros(nSegments,dtype = np.float32)
     simulationData["spikeVals"] = np.zeros(nSpikers,dtype = np.float32)
     simulationData["netCurrent"] = np.zeros(nSegments,dtype = np.float32)
@@ -659,9 +664,11 @@ def genSimData(neuronDict,spikerDict,synapseDict,TS):
 
 
 class Neuron():
-    def __init__(self,index,name,neuronType,AISchannels,AISbias,denderiteInfo={},dendriteMap=[],CaEquilibriumVal=0,CaRemovalRate=2):
-        neuronTypeToSynapseList = {"excitatory":["AMPA","NMDA_ion","NMDA_Ca"],#,
-                                   "inhibitory":["GABA"]}
+    def __init__(self,index,name,neuronType,AISchannels,AISbias,denderiteInfo={},dendriteMap=[],
+                 CaEquilibriumVal=0,CaRemovalRate=2,neuronTypeToSynapseList=None):
+        if neuronTypeToSynapseList is None:
+            neuronTypeToSynapseList = {"excitatory":["AMPA","NMDA_ion","NMDA_Ca"],#,
+                                    "inhibitory":["GABA"]}
         self.id = index
         self.name=name
         self.outgoingSynapses = neuronTypeToSynapseList[neuronType]
