@@ -1,5 +1,7 @@
 # Overview
 ## Preamble
+CBLTP = Conductance Based Long Term Plasticity, which describes the type of ion channels and neurons being simulated, and the intended use, which is for simulations of long term plasticity. 
+
 This is very much an unfinished project, but I need something to demonstrate my programming skills. 
 At the time of writing (November 2026) an agent could finish this project and implement all my features perfectly in about an hour. However that finished project would not be very informative to someone trying to assess my skills, which is what this is really about. 
 I used chatGPT, Gemini, and Claude through their chat interface at various points in this project, but I have not had an agent work on it. 
