@@ -3,6 +3,7 @@
 *./pyc
 /.vscode
 /__pycache__
+*.dll
 
 *.pyd
 *.pdb
